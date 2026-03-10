@@ -111,7 +111,9 @@ Payloads live under `.data`.
 |---------|-------------|---------|
 | `xhs follow <user_id>` | Follow a user | `xhs follow 5f2e123` |
 | `xhs unfollow <user_id>` | Unfollow a user | `xhs unfollow 5f2e123` |
-| `xhs favorites` | List your collected notes | `xhs favorites --json` |
+| `xhs favorites [user_id]` | List bookmarked notes (defaults to self) | `xhs favorites --json` |
+| `xhs following [user_id]` | List following (defaults to self) | `xhs following --page 2` |
+| `xhs followers [user_id]` | List followers (defaults to self) | `xhs followers` |
 
 ### Creator
 
