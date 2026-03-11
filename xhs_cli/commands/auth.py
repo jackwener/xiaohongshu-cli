@@ -35,9 +35,34 @@ def _xhs_user_payload(info: dict) -> dict[str, object]:
     help="Browser to read cookies from (default: auto-detect all installed browsers)",
 )
 @structured_output_options
+@click.option("--qrcode", "use_qrcode", is_flag=True, default=False,
+              help="Login via QR code (scan with Xiaohongshu app)")
 @click.pass_context
-def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool):
-    """Log in by extracting cookies from browser."""
+def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrcode: bool):
+    """Log in by extracting cookies from browser, or via QR code."""
+
+    if use_qrcode:
+        # QR code login flow
+        try:
+            from ..qr_login import qrcode_login
+
+            cookies = qrcode_login()
+
+            # Verify by fetching user info
+            with XhsClient(cookies) as client:
+                info = client.get_self_info()
+
+            payload = success_payload({"authenticated": True, "user": _xhs_user_payload(info)})
+            if not maybe_print_structured(payload, as_json=as_json, as_yaml=as_yaml):
+                nickname = info.get("nickname", "Unknown")
+                red_id = info.get("red_id", "")
+                print_success(f"Logged in as: {nickname} (ID: {red_id})")
+
+        except Exception as exc:
+            exit_for_error(exc, as_json=as_json, as_yaml=as_yaml, prefix="QR login failed")
+        return
+
+    # Browser cookie extraction (default)
     if cookie_source is None:
         cookie_source = ctx.obj.get("cookie_source", "auto") if ctx.obj else "auto"
     try:

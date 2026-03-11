@@ -700,6 +700,59 @@ class XhsClient:
             "cursor": cursor,
         })
 
+    # ─── QR Login Endpoints ────────────────────────────────────────────────
+
+    def login_activate(self) -> dict[str, Any]:
+        """Activate session via login endpoint.
+
+        Returns: {session, secure_session, user_id}
+        The ``session`` field is the value for the ``web_session`` cookie.
+        """
+        return self._main_api_post("/api/sns/web/v1/login/activate", {})
+
+    def create_qr_login(self) -> dict[str, Any]:
+        """Create a QR code for login.
+
+        Returns: {qr_id, code, url, multi_flag}
+        The ``url`` field is the content to encode into the QR image.
+        """
+        return self._main_api_post("/api/sns/web/v1/login/qrcode/create", {
+            "qr_type": 1,
+        })
+
+    def check_qr_status(self, qr_id: str, code: str) -> dict[str, Any]:
+        """Poll QR code scan status.
+
+        Returns: {codeStatus, userId, geoZone, result}
+        codeStatus values:
+            0 = waiting for scan
+            1 = scanned, waiting for confirmation
+            2 = confirmed / login success
+        """
+        uri = "/api/qrcode/userinfo"
+        data = {"qrId": qr_id, "code": code}
+        sign_headers = sign_main_api("POST", uri, self.cookies, payload=data)
+        url = f"{EDITH_HOST}{uri}"
+
+        headers = {
+            **self._base_headers(),
+            **sign_headers,
+            "service-tag": "webcn",
+        }
+
+        logger.debug("QR poll POST %s body=%s", url, data)
+        resp = self._http.post(
+            url,
+            headers=headers,
+            content=json.dumps(data, separators=(",", ":")),
+        )
+        logger.debug("QR poll response: %s", resp.text[:500])
+
+        raw = json.loads(resp.text)
+        if raw.get("success"):
+            return raw.get("data", {})
+        raise XhsApiError(f"QR status check failed: {json.dumps(raw)[:300]}")
+
     # ─── HTML Fallback ────────────────────────────────────────────────────
 
     def get_note_from_html(self, note_id: str, xsec_token: str) -> dict[str, Any]:

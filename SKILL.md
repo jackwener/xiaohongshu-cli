@@ -45,6 +45,7 @@ Ensure user is logged into xiaohongshu.com in any browser supported by [browser_
 ```bash
 xhs login                              # auto-detect browser with valid cookies
 xhs login --cookie-source arc          # specify browser explicitly
+xhs login --qrcode                     # scan QR code with Xiaohongshu app (no browser needed)
 ```
 
 Verify with:
@@ -125,7 +126,8 @@ Payloads live under `.data`.
 
 | Command | Description |
 |---------|-------------|
-| `xhs login` | Verify and display cookie status |
+| `xhs login` | Extract cookies from browser |
+| `xhs login --qrcode` | Login via QR code (scan with app) |
 | `xhs status` | Check authentication status |
 | `xhs logout` | Clear cached cookies |
 | `xhs whoami` | Show current user profile |
