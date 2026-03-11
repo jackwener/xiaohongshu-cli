@@ -1,6 +1,6 @@
 """Unit tests for formatter (no network required)."""
 
-from xhs_cli.formatter import extract_note_id, format_count
+from xhs_cli.formatter import coerce_int, extract_note_id, format_count
 
 
 class TestFormatCount:
@@ -18,6 +18,17 @@ class TestFormatCount:
 
     def test_string_large(self):
         assert format_count("50000") == "5.0万"
+
+
+class TestCoerceInt:
+    def test_int_input(self):
+        assert coerce_int(3) == 3
+
+    def test_string_input(self):
+        assert coerce_int("42") == 42
+
+    def test_invalid_string_falls_back(self):
+        assert coerce_int("10+") == 0
 
 
 class TestExtractNoteId:

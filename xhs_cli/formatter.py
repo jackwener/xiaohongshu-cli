@@ -145,6 +145,20 @@ def print_info(message: str) -> None:
     console.print(f"[dim]ℹ[/dim] {message}")
 
 
+def coerce_int(value: Any, default: int = 0) -> int:
+    """Best-effort integer coercion for reverse-engineered API fields."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return default
+    return default
+
+
 def format_count(n: int | str) -> str:
     """Format number for display (e.g., 12345 → 1.2万)."""
     if isinstance(n, str):
@@ -327,8 +341,8 @@ def render_comments(data: dict[str, Any]) -> None:
         user = comment.get("user_info", {})
         nickname = user.get("nickname", "Unknown")
         content = comment.get("content", "")
-        like_count = comment.get("like_count", "0")
-        sub_comment_count = comment.get("sub_comment_count", 0)
+        like_count = format_count(comment.get("like_count", "0"))
+        sub_comment_count = coerce_int(comment.get("sub_comment_count", 0))
 
         header = f"[bold]{nickname}[/bold]  [dim]❤️ {like_count}[/dim]"
         if sub_comment_count > 0:

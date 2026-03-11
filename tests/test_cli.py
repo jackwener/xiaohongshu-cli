@@ -165,3 +165,25 @@ class TestCliBasic:
         payload = yaml.safe_load(result.output)
         assert payload["ok"] is False
         assert payload["error"]["code"] == "unsupported_operation"
+
+    def test_comments_rich_output_handles_string_reply_counts(self, monkeypatch):
+        monkeypatch.setenv("OUTPUT", "rich")
+        monkeypatch.setattr(
+            "xhs_cli.commands.reading.run_client_action",
+            lambda ctx, action: {
+                "comments": [
+                    {
+                        "user_info": {"nickname": "tester"},
+                        "content": "hello",
+                        "like_count": "12",
+                        "sub_comment_count": "2",
+                    }
+                ]
+            },
+        )
+
+        result = runner.invoke(cli, ["comments", "note-123"])
+
+        assert result.exit_code == 0
+        assert "tester" in result.output
+        assert "2 replies" in result.output
