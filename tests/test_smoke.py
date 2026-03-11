@@ -44,11 +44,13 @@ class TestAuth:
         assert result.exit_code == 0, f"status failed: {result.output}"
         assert payload["ok"] is True
         assert payload["data"]["authenticated"] is True
+        assert payload["data"]["user"]["nickname"] != "Unknown"
 
     def test_whoami(self):
         result, payload = _invoke("whoami")
         assert result.exit_code == 0, f"whoami failed: {result.output}"
         assert payload["ok"] is True
+        assert payload["data"]["user"]["nickname"] != "Unknown"
 
 
 # ── Read-only queries ───────────────────────────────────────────────────

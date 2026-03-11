@@ -14,17 +14,78 @@ from ..formatter import (
 from ._common import exit_for_error, run_client_action, structured_output_options
 
 
+def _basic_user_info(info: dict) -> dict[str, object]:
+    """Return the basic user profile block regardless of response shape."""
+    basic = info.get("basic_info", info)
+    return basic if isinstance(basic, dict) else info
+
+
 def _xhs_user_payload(info: dict) -> dict[str, object]:
     """Normalize Xiaohongshu user info for structured agent output."""
+    basic = _basic_user_info(info)
     return {
-        "id": info.get("user_id") or info.get("userid") or info.get("red_id") or "",
-        "name": info.get("nickname", "Unknown"),
-        "username": info.get("red_id", ""),
-        "nickname": info.get("nickname", "Unknown"),
-        "red_id": info.get("red_id", ""),
-        "ip_location": info.get("ip_location", ""),
-        "desc": info.get("desc", ""),
+        "id": (
+            basic.get("user_id")
+            or info.get("user_id")
+            or info.get("userid")
+            or basic.get("red_id")
+            or info.get("red_id")
+            or ""
+        ),
+        "name": basic.get("nickname", basic.get("nick_name", "Unknown")),
+        "username": basic.get("red_id", info.get("red_id", "")),
+        "nickname": basic.get("nickname", basic.get("nick_name", "Unknown")),
+        "red_id": basic.get("red_id", info.get("red_id", "")),
+        "ip_location": basic.get("ip_location", info.get("ip_location", "")),
+        "desc": basic.get("desc", info.get("desc", "")),
     }
+
+
+def _has_resolved_profile(info: dict) -> bool:
+    """Check whether the response already contains usable profile fields."""
+    basic = _basic_user_info(info)
+    return bool(
+        basic.get("nickname")
+        or basic.get("nick_name")
+        or basic.get("red_id")
+        or basic.get("desc")
+        or basic.get("ip_location")
+    )
+
+
+def _fetch_current_user_profile(client: XhsClient) -> dict:
+    """Fetch current user identity, then enrich it with the profile endpoint."""
+    info = client.get_self_info()
+    if not isinstance(info, dict):
+        return info
+
+    if _has_resolved_profile(info):
+        return info
+
+    user_id = info.get("user_id", "")
+    if not user_id:
+        return info
+
+    try:
+        detailed = client.get_user_info(user_id)
+    except Exception:
+        return info
+
+    if not isinstance(detailed, dict):
+        return info
+
+    merged = dict(detailed)
+    for key, value in info.items():
+        merged.setdefault(key, value)
+
+    basic = merged.get("basic_info")
+    if isinstance(basic, dict):
+        normalized_basic = dict(basic)
+        normalized_basic.setdefault("user_id", user_id)
+        merged["basic_info"] = normalized_basic
+
+    merged.setdefault("user_id", user_id)
+    return merged
 
 
 @click.command()
@@ -52,18 +113,19 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
             import time
             time.sleep(1)  # brief delay for session propagation
             with XhsClient(cookies) as client:
-                info = client.get_self_info()
+                info = _fetch_current_user_profile(client)
 
-            if info.get("guest"):
+            if info.get("guest") and not _has_resolved_profile(info):
                 # Session not yet propagated; still valid
                 payload = success_payload({"authenticated": True, "user": {"id": info.get("user_id", "")}})
                 if not maybe_print_structured(payload, as_json=as_json, as_yaml=as_yaml):
                     print_success("Logged in (session saved)")
             else:
-                payload = success_payload({"authenticated": True, "user": _xhs_user_payload(info)})
+                user = _xhs_user_payload(info)
+                payload = success_payload({"authenticated": True, "user": user})
                 if not maybe_print_structured(payload, as_json=as_json, as_yaml=as_yaml):
-                    nickname = info.get("nickname", "Unknown")
-                    red_id = info.get("red_id", "")
+                    nickname = user["nickname"]
+                    red_id = user["red_id"]
                     print_success(f"Logged in as: {nickname} (ID: {red_id})")
 
         except Exception as exc:
@@ -79,12 +141,13 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
 
         # Verify by fetching user info
         with XhsClient(cookies) as client:
-            info = client.get_self_info()
+            info = _fetch_current_user_profile(client)
 
-        payload = success_payload({"authenticated": True, "user": _xhs_user_payload(info)})
+        user = _xhs_user_payload(info)
+        payload = success_payload({"authenticated": True, "user": user})
         if not maybe_print_structured(payload, as_json=as_json, as_yaml=as_yaml):
-            nickname = info.get("nickname", "Unknown")
-            red_id = info.get("red_id", "")
+            nickname = user["nickname"]
+            red_id = user["red_id"]
             print_success(f"Logged in as: {nickname} (ID: {red_id})")
 
     except Exception as exc:
@@ -97,17 +160,18 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
 def status(ctx, as_json: bool, as_yaml: bool):
     """Check current login status and user info."""
     try:
-        info = run_client_action(ctx, lambda client: client.get_self_info())
+        info = run_client_action(ctx, _fetch_current_user_profile)
+        user = _xhs_user_payload(info)
 
         if not maybe_print_structured(
-            success_payload({"authenticated": True, "user": _xhs_user_payload(info)}),
+            success_payload({"authenticated": True, "user": user}),
             as_json=as_json,
             as_yaml=as_yaml,
         ):
-            nickname = info.get("nickname", "Unknown")
-            red_id = info.get("red_id", "")
-            ip_location = info.get("ip_location", "")
-            desc = info.get("desc", "")
+            nickname = user["nickname"]
+            red_id = user["red_id"]
+            ip_location = user["ip_location"]
+            desc = user["desc"]
 
             console.print("[bold green]✓ Logged in[/bold green]")
             console.print(f"  昵称: [bold]{nickname}[/bold]")
@@ -138,7 +202,7 @@ def logout(as_json: bool, as_yaml: bool):
 def whoami(ctx, as_json: bool, as_yaml: bool):
     """Show detailed profile of current user (level, fans, likes)."""
     try:
-        info = run_client_action(ctx, lambda client: client.get_self_info())
+        info = run_client_action(ctx, _fetch_current_user_profile)
 
         if not maybe_print_structured(
             success_payload({"user": _xhs_user_payload(info)}),

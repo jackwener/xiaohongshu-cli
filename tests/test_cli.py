@@ -97,7 +97,11 @@ class TestCliBasic:
         monkeypatch.setenv("OUTPUT", "auto")
         monkeypatch.setattr(
             "xhs_cli.commands.auth.run_client_action",
-            lambda ctx, action: {"nickname": "Alice", "red_id": "alice001", "user_id": "u-1"},
+            lambda ctx, action: {
+                "user_id": "u-1",
+                "basic_info": {"nickname": "Alice", "red_id": "alice001"},
+                "interactions": [],
+            },
         )
 
         result = runner.invoke(cli, ["whoami"])
@@ -105,7 +109,30 @@ class TestCliBasic:
         assert result.exit_code == 0
         payload = yaml.safe_load(result.output)
         assert payload["ok"] is True
+        assert payload["data"]["user"]["nickname"] == "Alice"
         assert payload["data"]["user"]["username"] == "alice001"
+
+    def test_status_auto_yaml_reads_nested_profile(self, monkeypatch):
+        monkeypatch.setenv("OUTPUT", "auto")
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.run_client_action",
+            lambda ctx, action: {
+                "user_id": "u-1",
+                "basic_info": {
+                    "nickname": "Alice",
+                    "red_id": "alice001",
+                    "desc": "hello",
+                },
+            },
+        )
+
+        result = runner.invoke(cli, ["status"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is True
+        assert payload["data"]["user"]["name"] == "Alice"
+        assert payload["data"]["user"]["desc"] == "hello"
 
     def test_read_error_yaml_when_not_logged_in(self, monkeypatch):
         monkeypatch.setenv("OUTPUT", "auto")
