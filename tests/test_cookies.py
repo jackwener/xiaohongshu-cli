@@ -7,8 +7,10 @@ from xhs_cli.cookies import (
     clear_cookies,
     cookies_to_string,
     get_cookies,
+    get_note_by_index,
     load_saved_cookies,
     save_cookies,
+    save_note_index,
 )
 
 
@@ -96,3 +98,76 @@ class TestGetCookies:
         assert browser == "chrome"
         assert cookies == {"a1": "fresh"}
         assert saved == [{"a1": "fresh"}]
+
+
+@pytest.fixture
+def tmp_index_dir(tmp_path, monkeypatch):
+    """Redirect index cache to a temporary directory."""
+    monkeypatch.setattr("xhs_cli.cookies.get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr("xhs_cli.cookies.get_index_cache_path", lambda: tmp_path / "index_cache.json")
+    return tmp_path
+
+
+class TestSaveNoteIndex:
+    def test_saves_entries(self, tmp_index_dir):
+        items = [
+            {"note_id": "aaa111", "xsec_token": "tok_a"},
+            {"note_id": "bbb222", "xsec_token": "tok_b"},
+        ]
+        save_note_index(items)
+        assert (tmp_index_dir / "index_cache.json").exists()
+
+    def test_file_permissions(self, tmp_index_dir):
+        save_note_index([{"note_id": "x", "xsec_token": ""}])
+        stat = (tmp_index_dir / "index_cache.json").stat()
+        assert stat.st_mode & 0o777 == 0o600
+
+    def test_overwrites_previous(self, tmp_index_dir):
+        save_note_index([{"note_id": "old", "xsec_token": ""}])
+        save_note_index([{"note_id": "new1", "xsec_token": ""}, {"note_id": "new2", "xsec_token": ""}])
+        assert get_note_by_index(1)["note_id"] == "new1"
+        assert get_note_by_index(3) is None
+
+
+class TestGetNoteByIndex:
+    def test_first_entry(self, tmp_index_dir):
+        save_note_index([
+            {"note_id": "aaa111", "xsec_token": "tok_a"},
+            {"note_id": "bbb222", "xsec_token": "tok_b"},
+        ])
+        entry = get_note_by_index(1)
+        assert entry == {"note_id": "aaa111", "xsec_token": "tok_a"}
+
+    def test_last_entry(self, tmp_index_dir):
+        save_note_index([
+            {"note_id": "aaa111", "xsec_token": "tok_a"},
+            {"note_id": "bbb222", "xsec_token": "tok_b"},
+        ])
+        entry = get_note_by_index(2)
+        assert entry == {"note_id": "bbb222", "xsec_token": "tok_b"}
+
+    def test_out_of_range_returns_none(self, tmp_index_dir):
+        save_note_index([{"note_id": "aaa111", "xsec_token": ""}])
+        assert get_note_by_index(99) is None
+
+    def test_zero_index_returns_none(self, tmp_index_dir):
+        save_note_index([{"note_id": "aaa111", "xsec_token": ""}])
+        assert get_note_by_index(0) is None
+
+    def test_no_cache_file_returns_none(self, tmp_index_dir):
+        assert get_note_by_index(1) is None
+
+    def test_corrupt_json_returns_none(self, tmp_index_dir):
+        (tmp_index_dir / "index_cache.json").write_text("not json!!!")
+        assert get_note_by_index(1) is None
+
+    def test_preserves_xsec_token(self, tmp_index_dir):
+        save_note_index([{"note_id": "n1", "xsec_token": "ABCDE12345"}])
+        entry = get_note_by_index(1)
+        assert entry["xsec_token"] == "ABCDE12345"
+
+    def test_empty_token_allowed(self, tmp_index_dir):
+        save_note_index([{"note_id": "n1", "xsec_token": ""}])
+        entry = get_note_by_index(1)
+        assert entry["note_id"] == "n1"
+        assert entry["xsec_token"] == ""

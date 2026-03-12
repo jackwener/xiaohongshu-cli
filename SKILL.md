@@ -2,7 +2,7 @@
 name: xiaohongshu-cli
 description: Use xiaohongshu-cli for ALL Xiaohongshu (Little Red Book, 小红书) operations — searching notes, reading content, browsing users, liking, collecting, commenting, following, and posting. Invoke whenever the user requests any Xiaohongshu interaction.
 author: jackwener
-version: "0.5.0"
+version: "0.6.0"
 tags:
   - xiaohongshu
   - xhs
@@ -85,7 +85,7 @@ Payloads live under `.data`.
 | Command | Description | Example |
 |---------|-------------|---------|
 | `xhs search <keyword>` | Search notes | `xhs search "美食" --sort popular --type video` |
-| `xhs read <id_or_url>` | Read a note (URL auto-extracts xsec_token) | `xhs read "https://...?xsec_token=xxx"` |
+| `xhs read <id_or_url_or_index>` | Read a note by ID, URL, or listing index | `xhs read 2` / `xhs read "https://...?xsec_token=xxx"` |
 | `xhs comments <id_or_url>` | Get comments (xsec_token required — paste URL) | `xhs comments "https://...?xsec_token=..."` |
 | `xhs comments <id_or_url> --all` | Get ALL comments (auto-paginate) | `xhs comments "<url>" --all --json` |
 | `xhs sub-comments <note_id> <comment_id>` | Get replies to comment | `xhs sub-comments abc 123` |
@@ -141,10 +141,32 @@ Payloads live under `.data`.
 ### Search → Read → Like pipeline
 
 ```bash
+# Option A: use short index (simplest for interactive use)
+xhs search "美食推荐"
+xhs read 1          # read the first result
+xhs like 1          # NOT supported yet — still need note_id for interactions
+
+# Option B: extract note_id from structured output (for scripting)
 NOTE_ID=$(xhs search "美食推荐" --json | jq -r '.data.items[0].id')
 xhs read "$NOTE_ID" --json | jq '.data'
 xhs like "$NOTE_ID"
 ```
+
+### Short-index workflow (interactive)
+
+After any listing command (`search`, `feed`, `hot`, `user-posts`), each result
+is automatically assigned a short index.  Use `xhs read <N>` to open result N:
+
+```bash
+xhs search "旅行"
+xhs read 3          # open the 3rd search result (xsec_token reused automatically)
+
+xhs hot -c food
+xhs read 1          # open the 1st hot note
+```
+
+The index is stored in `~/.xiaohongshu-cli/index_cache.json` and **reset on
+every listing command**.
 
 ### Browse trending food notes
 

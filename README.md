@@ -26,6 +26,7 @@ A CLI for Xiaohongshu (小红书) — search, read, interact, and post via rever
 - ✍️ **Creator** — post image notes, my-notes list, delete
 - 🔔 **Notifications** — unread count, mentions, likes, new followers
 - 🛡️ **Anti-detection** — consistent macOS Chrome fingerprint, `sec-ch-ua` alignment, session-stable browser identity, Gaussian jitter, captcha cooldown, exponential backoff
+- 🔢 **Short-index navigation** — listing commands assign temporary indices; use `xhs read 2` to open result #2
 - 📊 **Structured output** — commands support `--yaml` and `--json`; non-TTY stdout defaults to YAML
 - 📦 **Stable envelope** — see [SCHEMA.md](./SCHEMA.md) for `ok/schema_version/data/error`
 
@@ -78,7 +79,8 @@ xhs search-user "用户名"               # Search users
 xhs topics "美食"                      # Search hashtags/topics
 
 # ─── Reading ──────────────────────────────────────
-xhs read <note_id>                     # Read a note (API only)
+xhs read 2                             # Read by short index (from last search/feed/hot/user-posts)
+xhs read <note_id>                     # Read a note by ID
 xhs read "https://www.xiaohongshu.com/explore/xxx?xsec_token=yyy"  # Read by URL (uses URL token)
 xhs comments "<url>"                   # View comments — paste URL to cache/reuse xsec_token
 xhs comments "<url>" --all             # Fetch ALL comments (auto-paginate all pages)
@@ -124,6 +126,28 @@ xhs unread                             # Unread counts (likes, mentions, follows
 xhs notifications                      # 评论和@ notifications
 xhs notifications --type likes        # 赞和收藏 notifications
 xhs notifications --type connections   # 新增关注 notifications
+```
+
+## Short-Index Navigation
+
+After any listing command (`search`, `feed`, `hot`, `user-posts`), each result is
+automatically assigned a short numeric index. Use `xhs read <N>` to open result N —
+no need to copy long note IDs:
+
+```bash
+xhs search "旅行攻略"   # shows table with # 1, 2, 3 …
+xhs read 2              # opens the 2nd result (xsec_token reused automatically)
+
+xhs hot -c food
+xhs read 1              # opens the 1st trending food note
+```
+
+The index resets with every new listing command and is stored in
+`~/.xiaohongshu-cli/index_cache.json`. The standard ID/URL form still works:
+
+```bash
+xhs read abc123
+xhs read "https://www.xiaohongshu.com/explore/abc123?xsec_token=xxx"
 ```
 
 ## Authentication

@@ -1454,8 +1454,20 @@ wheels = [
 ]
 
 [[package]]
+name = "xhshow"
+version = "0.1.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pycryptodome" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e5/9a/ed544bea5b6a3702fc232eb774817d7f03a678b5f2ac3d67d3c7698695e6/xhshow-0.1.9.tar.gz", hash = "sha256:5a17cb510e9ab3ca61ef8ce00bd4cae6cbce39bb7b5f8ef38a5a980011883245", size = 55126, upload-time = "2026-02-17T08:05:27.456Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/c0/2783314af317b7207422e94f74302dbe32c5c9a1641bcfe11c4c073b0b04/xhshow-0.1.9-py3-none-any.whl", hash = "sha256:c4b0d38f4746b8a3f9c08fcfe4628f81c887b27c76b7ba73fa61ff990d1839dc", size = 31289, upload-time = "2026-02-17T08:05:26.58Z" },
+]
+
+[[package]]
 name = "xiaohongshu-cli"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "browser-cookie3" },
@@ -1466,6 +1478,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "qrcode" },
     { name = "rich" },
+    { name = "xhshow" },
 ]
 
 [package.optional-dependencies]
@@ -1490,5 +1503,6 @@ requires-dist = [
     { name = "qrcode", specifier = ">=7.0" },
     { name = "rich", specifier = ">=13.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.11.0" },
+    { name = "xhshow", specifier = ">=0.1.9" },
 ]
 provides-extras = ["dev"]

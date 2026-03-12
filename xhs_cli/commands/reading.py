@@ -3,7 +3,7 @@
 import click
 
 from ..command_normalizers import normalize_paged_notes
-from ..cookies import cache_xsec_token
+from ..cookies import cache_xsec_token, get_note_by_index, save_note_index
 from ..formatter import (
     maybe_print_structured,
     parse_note_url,
@@ -23,18 +23,30 @@ from ._common import exit_for_error, handle_command, run_client_action, structur
 # ─── Token propagation ─────────────────────────────────────────────────────
 
 def _cache_tokens_from_items(data: dict) -> None:
-    """Auto-cache xsec_token from search/feed API results.
-
-    Each note item may carry its own xsec_token bound to the source
-    (search, feed, explore).  Caching them lets a subsequent
-    `xhs read <note_id>` use the correct token automatically.
-    """
+    """Auto-cache xsec_token from search/feed API results."""
     for item in data.get("items", []):
         note_card = item.get("note_card", {})
         note_id = item.get("id", note_card.get("note_id", ""))
         token = item.get("xsec_token", note_card.get("xsec_token", ""))
         if note_id and token:
             cache_xsec_token(note_id, token)
+
+
+def _save_index_from_items(data: dict) -> None:
+    """Persist short-index cache from search/feed/hot results.
+
+    Saves a list of {note_id, xsec_token} so that `xhs read <N>` works
+    regardless of whether stdout is a TTY.
+    """
+    entries = []
+    for item in data.get("items", []):
+        note_card = item.get("note_card", {})
+        note_id = item.get("id", note_card.get("note_id", ""))
+        token = item.get("xsec_token", note_card.get("xsec_token", ""))
+        if note_id:
+            entries.append({"note_id": note_id, "xsec_token": token})
+    if entries:
+        save_note_index(entries)
 
 # ─── Sort mapping ────────────────────────────────────────────────────────────
 
@@ -68,6 +80,7 @@ def search(ctx, keyword: str, sort: str, note_type: str, page: int, as_json: boo
             note_type=TYPE_MAP[note_type],
         )
         _cache_tokens_from_items(result)
+        _save_index_from_items(result)
         return result
 
     handle_command(
@@ -85,9 +98,21 @@ def search(ctx, keyword: str, sort: str, note_type: str, page: int, as_json: boo
 @structured_output_options
 @click.pass_context
 def read(ctx, id_or_url: str, xsec_token: str, as_json: bool, as_yaml: bool):
-    """Read a note by ID or URL."""
-    note_id, url_token = parse_note_url(id_or_url)
-    token = xsec_token or url_token
+    """Read a note by ID, URL, or listing index (e.g. 2)."""
+    # Allow short numeric index from the last listing command
+    if id_or_url.isdigit():
+        entry = get_note_by_index(int(id_or_url))
+        if entry is None:
+            import click as _click
+            raise _click.UsageError(
+                f"Index {id_or_url} not found — run a listing command first (search / feed / hot / user-posts)"
+            )
+        note_id = entry["note_id"]
+        token = xsec_token or entry.get("xsec_token", "")
+    else:
+        note_id, url_token = parse_note_url(id_or_url)
+        token = xsec_token or url_token
+
     if token:
         cache_xsec_token(note_id, token)
 
@@ -156,6 +181,12 @@ def user(ctx, user_id: str, as_json: bool, as_yaml: bool):
 @click.pass_context
 def user_posts(ctx, user_id: str, cursor: str, as_json: bool, as_yaml: bool):
     """List a user's published notes."""
+    def _user_posts_action(client):
+        data = client.get_user_notes(user_id, cursor=cursor)
+        notes = data.get("notes", [])
+        save_note_index([{"note_id": n.get("note_id", ""), "xsec_token": ""} for n in notes if n.get("note_id")])
+        return data
+
     def _render_user_posts(data):
         page = normalize_paged_notes(data)
         render_user_posts(page["notes"])
@@ -164,7 +195,7 @@ def user_posts(ctx, user_id: str, cursor: str, as_json: bool, as_yaml: bool):
 
     handle_command(
         ctx,
-        action=lambda client: client.get_user_notes(user_id, cursor=cursor),
+        action=_user_posts_action,
         render=_render_user_posts,
         as_json=as_json,
         as_yaml=as_yaml,
@@ -179,6 +210,7 @@ def feed(ctx, as_json: bool, as_yaml: bool):
     def _feed_action(client):
         result = client.get_home_feed()
         _cache_tokens_from_items(result)
+        _save_index_from_items(result)
         return result
 
     handle_command(
@@ -265,6 +297,7 @@ def hot(ctx, category: str, as_json: bool, as_yaml: bool):
     def _hot_action(client):
         result = client.get_hot_feed(HOT_CATEGORIES[category])
         _cache_tokens_from_items(result)
+        _save_index_from_items(result)
         return result
 
     handle_command(

@@ -187,3 +187,127 @@ class TestCliBasic:
         assert result.exit_code == 0
         assert "tester" in result.output
         assert "2 replies" in result.output
+
+
+FAKE_NOTE_RESPONSE = {
+    "items": [
+        {
+            "note_card": {
+                "title": "Test Note",
+                "desc": "body",
+                "user": {"nickname": "Author"},
+                "interact_info": {
+                    "liked_count": "100",
+                    "collected_count": "50",
+                    "comment_count": "10",
+                    "share_count": "5",
+                },
+                "tag_list": [],
+                "image_list": [],
+            }
+        }
+    ]
+}
+
+FAKE_SEARCH_RESPONSE = {
+    "items": [
+        {
+            "id": "note_abc",
+            "xsec_token": "tok_abc",
+            "note_card": {
+                "title": "搜索结果一",
+                "user": {"nickname": "Author1"},
+                "interact_info": {"liked_count": "10"},
+                "type": "image",
+            },
+        },
+        {
+            "id": "note_def",
+            "xsec_token": "tok_def",
+            "note_card": {
+                "title": "搜索结果二",
+                "user": {"nickname": "Author2"},
+                "interact_info": {"liked_count": "20"},
+                "type": "video",
+            },
+        },
+    ],
+    "has_more": False,
+}
+
+
+class TestReadByShortIndex:
+    """Test `xhs read <N>` short-index feature."""
+
+    def test_read_help_mentions_index(self):
+        result = runner.invoke(cli, ["read", "--help"])
+        assert result.exit_code == 0
+        assert "index" in result.output.lower()
+
+    def test_read_index_not_found_when_no_cache(self, monkeypatch, tmp_path):
+        monkeypatch.setattr("xhs_cli.cookies.get_index_cache_path", lambda: tmp_path / "index_cache.json")
+        monkeypatch.setattr("xhs_cli.commands.reading.get_note_by_index",
+                            lambda idx: None)
+
+        result = runner.invoke(cli, ["read", "5"])
+        assert result.exit_code != 0
+        assert "5" in result.output or "5" in (result.exception and str(result.exception) or "")
+
+    def test_read_index_resolves_to_note_id(self, monkeypatch):
+        monkeypatch.setattr(
+            "xhs_cli.commands.reading.get_note_by_index",
+            lambda idx: {"note_id": "note_abc", "xsec_token": "tok_abc"} if idx == 1 else None,
+        )
+        monkeypatch.setattr(
+            "xhs_cli.commands._common.run_client_action",
+            lambda ctx, action: FAKE_NOTE_RESPONSE,
+        )
+
+        result = runner.invoke(cli, ["read", "1", "--yaml"])
+        assert result.exit_code == 0
+        import yaml
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is True
+
+    def test_read_index_out_of_range_gives_usage_error(self, monkeypatch):
+        monkeypatch.setattr(
+            "xhs_cli.commands.reading.get_note_by_index",
+            lambda idx: None,
+        )
+
+        result = runner.invoke(cli, ["read", "999"])
+        assert result.exit_code != 0
+        assert "999" in result.output
+
+    def test_save_index_from_items_extracts_note_ids(self, monkeypatch):
+        from xhs_cli.commands.reading import _save_index_from_items
+
+        saved = []
+        monkeypatch.setattr("xhs_cli.commands.reading.save_note_index", lambda items: saved.append(items))
+
+        _save_index_from_items(FAKE_SEARCH_RESPONSE)
+
+        assert len(saved) == 1
+        assert saved[0][0]["note_id"] == "note_abc"
+        assert saved[0][1]["note_id"] == "note_def"
+
+    def test_save_index_from_items_preserves_tokens(self, monkeypatch):
+        from xhs_cli.commands.reading import _save_index_from_items
+
+        saved = []
+        monkeypatch.setattr("xhs_cli.commands.reading.save_note_index", lambda items: saved.append(items))
+
+        _save_index_from_items(FAKE_SEARCH_RESPONSE)
+
+        assert saved[0][0]["xsec_token"] == "tok_abc"
+        assert saved[0][1]["xsec_token"] == "tok_def"
+
+    def test_save_index_from_items_skips_empty_response(self, monkeypatch):
+        from xhs_cli.commands.reading import _save_index_from_items
+
+        saved = []
+        monkeypatch.setattr("xhs_cli.commands.reading.save_note_index", lambda items: saved.append(items))
+
+        _save_index_from_items({"items": []})
+
+        assert saved == []  # nothing saved for empty results

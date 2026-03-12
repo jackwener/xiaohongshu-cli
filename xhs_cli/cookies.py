@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from .constants import CONFIG_DIR_NAME, COOKIE_FILE, TOKEN_CACHE_FILE
+from .constants import CONFIG_DIR_NAME, COOKIE_FILE, INDEX_CACHE_FILE, TOKEN_CACHE_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,40 @@ def cache_xsec_token(note_id: str, xsec_token: str) -> None:
 
     save_token_cache(cache)
     logger.debug("Cached xsec_token for note %s", note_id)
+
+
+def get_index_cache_path() -> Path:
+    """Get note index cache file path."""
+    return get_config_dir() / INDEX_CACHE_FILE
+
+
+def save_note_index(items: list[dict[str, str]]) -> None:
+    """Persist an ordered list of {note_id, xsec_token} for short-index lookup.
+
+    Overwrites the cache each time so the index always reflects the most
+    recent listing command (search / feed / hot / user-posts …).
+    """
+    path = get_index_cache_path()
+    path.write_text(json.dumps(items, indent=2))
+    path.chmod(0o600)
+    logger.debug("Saved note index with %d entries", len(items))
+
+
+def get_note_by_index(index: int) -> dict[str, str] | None:
+    """Return the {note_id, xsec_token} entry for a 1-based index.
+
+    Returns None when the index is out of range or the cache is missing.
+    """
+    path = get_index_cache_path()
+    if not path.exists():
+        return None
+    try:
+        items = json.loads(path.read_text())
+        if 1 <= index <= len(items):
+            return items[index - 1]
+    except (OSError, json.JSONDecodeError):
+        pass
+    return None
 
 
 def get_cached_xsec_token(note_id: str) -> str:
