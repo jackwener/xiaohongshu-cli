@@ -1,14 +1,9 @@
-"""Tests for anti-detection measures: fingerprint consistency, UA/platform alignment, jitter."""
+"""Tests for anti-detection measures: UA/platform alignment, header completeness, jitter."""
 
 
 from xhs_cli.client import XhsClient
 from xhs_cli.constants import CHROME_VERSION, PLATFORM, USER_AGENT
-from xhs_cli.signing import (
-    _generate_fingerprint,
-    _get_session_fingerprint,
-    _session_fp_cache,
-    sign_main_api,
-)
+from xhs_cli.signing import sign_main_api
 
 
 class TestUAPlatformConsistency:
@@ -36,65 +31,27 @@ class TestUAPlatformConsistency:
         finally:
             client.close()
 
-    def test_fingerprint_platform_is_macintel(self):
+
+class TestSigningHeaders:
+    """Verify sign_main_api returns all required headers."""
+
+    def test_returns_all_required_keys(self):
         cookies = {"a1": "test_a1_12345678901234567890123456789012345678901234"}
-        fp = _generate_fingerprint(cookies, USER_AGENT)
-        assert fp["x19"] == "MacIntel"
+        headers = sign_main_api("GET", "/api/test", cookies)
+        expected_keys = {"x-s", "x-s-common", "x-t", "x-b3-traceid", "x-xray-traceid"}
+        assert set(headers.keys()) == expected_keys
 
-    def test_fingerprint_gpu_is_macos_appropriate(self):
+    def test_xs_has_xys_prefix(self):
         cookies = {"a1": "test_a1_12345678901234567890123456789012345678901234"}
-        fp = _generate_fingerprint(cookies, USER_AGENT)
-        # GPU vendor should be Apple or macOS-compatible
-        gpu = fp["x7"]
-        valid_vendors = ["Apple", "Intel", "AMD"]
-        assert any(v in gpu for v in valid_vendors)
-        # No D3D11 (Windows-only)
-        assert "D3D11" not in gpu
+        headers = sign_main_api("GET", "/api/test", cookies)
+        assert headers["x-s"].startswith("XYS_")
 
-    def test_fingerprint_vendor_is_apple(self):
+    def test_get_and_post_return_different_xs(self):
         cookies = {"a1": "test_a1_12345678901234567890123456789012345678901234"}
-        fp = _generate_fingerprint(cookies, USER_AGENT)
-        assert fp["x75"] == "Apple Inc."
-
-
-class TestFingerprintSessionPersistence:
-    """Fingerprint must remain stable within a session (same a1)."""
-
-    def setup_method(self):
-        _session_fp_cache.clear()
-
-    def test_same_a1_returns_same_fingerprint(self):
-        cookies = {"a1": "persist_test_1234567890abcdef1234567890abcdef1234567890ab"}
-
-        fp1, b1_1, x9_1 = _get_session_fingerprint(cookies)
-        fp2, b1_2, x9_2 = _get_session_fingerprint(cookies)
-
-        # Core identity fields must be identical
-        assert fp1["x7"] == fp2["x7"]  # GPU
-        assert fp1["x9"] == fp2["x9"]  # Screen resolution
-        assert fp1["x8"] == fp2["x8"]  # CPU cores
-        assert b1_1 == b1_2
-        assert x9_1 == x9_2
-
-    def test_different_a1_gets_different_fingerprint(self):
-        cookies_a = {"a1": "user_a_1234567890abcdef1234567890abcdef1234567890ab"}
-        cookies_b = {"a1": "user_b_1234567890abcdef1234567890abcdef1234567890ab"}
-
-        fp_a, _, _ = _get_session_fingerprint(cookies_a)
-        fp_b, _, _ = _get_session_fingerprint(cookies_b)
-
-        # Different a1s generate independently (may or may not differ due to randomness)
-        assert cookies_a["a1"] in _session_fp_cache
-        assert cookies_b["a1"] in _session_fp_cache
-
-    def test_x_s_common_is_stable_across_calls(self):
-        cookies = {"a1": "stable_test_1234567890abcdef1234567890abcdef1234567890ab"}
-
-        headers1 = sign_main_api("GET", "/api/test", cookies)
-        headers2 = sign_main_api("GET", "/api/test", cookies)
-
-        # x-s-common should be identical (same fingerprint → same b1 → same output)
-        assert headers1["x-s-common"] == headers2["x-s-common"]
+        h_get = sign_main_api("GET", "/api/test", cookies)
+        h_post = sign_main_api("POST", "/api/test", cookies, payload={"key": "value"})
+        # Different method/payload → different signature
+        assert h_get["x-s"] != h_post["x-s"]
 
 
 class TestClientJitter:
