@@ -258,16 +258,27 @@ class TestReadByShortIndex:
             "xhs_cli.commands.reading.get_note_by_index",
             lambda idx: {"note_id": "note_abc", "xsec_token": "tok_abc"} if idx == 1 else None,
         )
-        monkeypatch.setattr(
-            "xhs_cli.commands._common.run_client_action",
-            lambda ctx, action: FAKE_NOTE_RESPONSE,
-        )
+
+        called = {}
+
+        def fake_run_client_action(ctx, action):
+            from unittest.mock import MagicMock
+            mock_client = MagicMock()
+            mock_client.get_note_detail.return_value = FAKE_NOTE_RESPONSE
+            action(mock_client)
+            call_args = mock_client.get_note_detail.call_args
+            called["note_id"] = call_args.args[0]
+            called["xsec_token"] = call_args.kwargs.get("xsec_token")
+            return FAKE_NOTE_RESPONSE
+
+        monkeypatch.setattr("xhs_cli.commands._common.run_client_action", fake_run_client_action)
 
         result = runner.invoke(cli, ["read", "1", "--yaml"])
         assert result.exit_code == 0
-        import yaml
         payload = yaml.safe_load(result.output)
         assert payload["ok"] is True
+        assert called["note_id"] == "note_abc"
+        assert called["xsec_token"] == "tok_abc"
 
     def test_read_index_out_of_range_gives_usage_error(self, monkeypatch):
         monkeypatch.setattr(

@@ -152,8 +152,12 @@ def get_note_by_index(index: int) -> dict[str, str] | None:
         return None
     try:
         items = json.loads(path.read_text())
+        if not isinstance(items, list):
+            return None
         if 1 <= index <= len(items):
-            return items[index - 1]
+            entry = items[index - 1]
+            if isinstance(entry, dict) and "note_id" in entry and "xsec_token" in entry:
+                return entry
     except (OSError, json.JSONDecodeError):
         pass
     return None
