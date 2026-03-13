@@ -4,6 +4,7 @@ import click
 
 from ..command_normalizers import normalize_paged_notes, resolve_current_user_id
 from ..formatter import print_info, print_success, render_user_posts
+from ..note_refs import save_index_from_notes
 from ._common import handle_command, run_client_action, structured_output_options
 
 
@@ -57,6 +58,12 @@ def favorites(ctx, user_id: str | None, cursor: str, as_json: bool, as_yaml: boo
     """List favorited (bookmarked) notes. Defaults to current user if user_id is omitted."""
     uid = _resolve_user_id(ctx, user_id)
 
+    def _favorites_action(client):
+        data = client.get_user_favorites(uid, cursor=cursor)
+        page = normalize_paged_notes(data)
+        save_index_from_notes(page["notes"])
+        return data
+
     def _render_favorites(data):
         page = normalize_paged_notes(data)
         render_user_posts(page["notes"])
@@ -65,7 +72,7 @@ def favorites(ctx, user_id: str | None, cursor: str, as_json: bool, as_yaml: boo
 
     handle_command(
         ctx,
-        action=lambda client: client.get_user_favorites(uid, cursor=cursor),
+        action=_favorites_action,
         render=_render_favorites,
         as_json=as_json,
         as_yaml=as_yaml,

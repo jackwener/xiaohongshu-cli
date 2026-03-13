@@ -10,6 +10,7 @@ from ..formatter import (
     print_success,
     render_creator_notes,
 )
+from ..note_refs import save_index_from_notes
 from ._common import exit_for_error, handle_command, run_client_action, structured_output_options
 
 
@@ -69,9 +70,15 @@ def post(
 @click.pass_context
 def my_notes(ctx, page: int, as_json: bool, as_yaml: bool):
     """List your own published notes."""
+    def _my_notes_action(client):
+        data = client.get_creator_note_list(page=page)
+        notes = data.get("notes", data.get("note_list", []))
+        save_index_from_notes(notes)
+        return data
+
     handle_command(
         ctx,
-        action=lambda client: client.get_creator_note_list(page=page),
+        action=_my_notes_action,
         render=render_creator_notes,
         as_json=as_json,
         as_yaml=as_yaml,

@@ -2,8 +2,17 @@
 
 import click
 
-from ..formatter import extract_note_id, print_success
+from ..cookies import cache_note_context
+from ..formatter import print_success
+from ..note_refs import resolve_note_reference
 from ._common import handle_command, structured_output_options
+
+
+def _resolve_interaction_note(id_or_url: str) -> str:
+    note_id, token, source = resolve_note_reference(id_or_url)
+    if token:
+        cache_note_context(note_id, token, source or "pc_feed")
+    return note_id
 
 
 @click.command()
@@ -13,7 +22,7 @@ from ._common import handle_command, structured_output_options
 @click.pass_context
 def like(ctx, id_or_url: str, undo: bool, as_json: bool, as_yaml: bool):
     """Like or unlike a note."""
-    note_id = extract_note_id(id_or_url)
+    note_id = _resolve_interaction_note(id_or_url)
     action = (lambda client: client.unlike_note(note_id)) if undo else (lambda client: client.like_note(note_id))
     handle_command(
         ctx,
@@ -30,7 +39,7 @@ def like(ctx, id_or_url: str, undo: bool, as_json: bool, as_yaml: bool):
 @click.pass_context
 def favorite(ctx, id_or_url: str, as_json: bool, as_yaml: bool):
     """Favorite (bookmark) a note."""
-    note_id = extract_note_id(id_or_url)
+    note_id = _resolve_interaction_note(id_or_url)
     handle_command(
         ctx,
         action=lambda client: client.favorite_note(note_id),
@@ -46,7 +55,7 @@ def favorite(ctx, id_or_url: str, as_json: bool, as_yaml: bool):
 @click.pass_context
 def unfavorite(ctx, id_or_url: str, as_json: bool, as_yaml: bool):
     """Unfavorite (unbookmark) a note."""
-    note_id = extract_note_id(id_or_url)
+    note_id = _resolve_interaction_note(id_or_url)
     handle_command(
         ctx,
         action=lambda client: client.unfavorite_note(note_id),
@@ -63,7 +72,7 @@ def unfavorite(ctx, id_or_url: str, as_json: bool, as_yaml: bool):
 @click.pass_context
 def comment(ctx, id_or_url: str, content: str, as_json: bool, as_yaml: bool):
     """Post a comment on a note."""
-    note_id = extract_note_id(id_or_url)
+    note_id = _resolve_interaction_note(id_or_url)
     handle_command(
         ctx,
         action=lambda client: client.post_comment(note_id, content),
@@ -81,7 +90,7 @@ def comment(ctx, id_or_url: str, content: str, as_json: bool, as_yaml: bool):
 @click.pass_context
 def reply(ctx, id_or_url: str, comment_id: str, content: str, as_json: bool, as_yaml: bool):
     """Reply to a specific comment."""
-    note_id = extract_note_id(id_or_url)
+    note_id = _resolve_interaction_note(id_or_url)
     handle_command(
         ctx,
         action=lambda client: client.reply_comment(note_id, comment_id, content),

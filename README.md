@@ -100,10 +100,12 @@ xhs hot -c fashion                    # Categories: fashion, food, cosmetics,
                                       #   movie, career, love, home, gaming,
                                       #   travel, fitness
 
-# Short index works after list commands such as search/feed/hot/user-posts
+# Short index works after list commands such as search/feed/hot/user-posts/favorites/my-notes
 xhs search "黑丝"
 xhs read 1
 xhs comments 1
+xhs like 1
+xhs favorite 1
 
 # ─── Social ───────────────────────────────────────
 xhs favorites                          # My bookmarked notes (current user)
@@ -112,11 +114,16 @@ xhs follow <user_id>                   # Follow a user
 xhs unfollow <user_id>                 # Unfollow a user
 
 # ─── Interactions ─────────────────────────────────
+xhs like 1                             # Like the 1st result from the latest note listing
 xhs like <note_id>                     # Like a note
 xhs like <note_id> --undo             # Unlike
+xhs favorite 1                         # Favorite the 1st result from the latest note listing
 xhs favorite <note_id>                 # Favorite (bookmark)
+xhs unfavorite 1                       # Unfavorite the 1st result from the latest note listing
 xhs unfavorite <note_id>               # Unfavorite
+xhs comment 1 -c "好赞！"              # Comment on the 1st result from the latest note listing
 xhs comment <note_id> -c "好赞！"     # Post comment
+xhs reply 1 --comment-id X -c "回复"   # Reply on the 1st result from the latest note listing
 xhs reply <note_id> --comment-id X -c "回复"  # Reply to comment
 xhs delete-comment <note_id> <cmt_id> # Delete own comment
 
@@ -153,10 +160,11 @@ Saved cookies are valid for **7 days** by default. After that, the client automa
 
 ### Short-Index Navigation
 
-After any listing command such as `search`, `feed`, `hot`, or `user-posts`, the CLI stores the latest ordered note list in `~/.xiaohongshu-cli/index_cache.json`.
+After any listing command such as `search`, `feed`, `hot`, `user-posts`, `favorites`, or `my-notes`, the CLI stores the latest ordered note list in `~/.xiaohongshu-cli/index_cache.json`.
 
 - `xhs read <N>` opens the Nth note from the latest listing
 - `xhs comments <N>` opens comments for the Nth note from the latest listing
+- `xhs like <N>`, `xhs favorite <N>`, `xhs unfavorite <N>`, `xhs comment <N>`, and `xhs reply <N>` reuse the same short index
 - Empty listings clear the index cache, so old results are not reused by accident
 
 ## Environment Variables
@@ -357,8 +365,10 @@ xhs search-user "用户名"               # 搜索用户
 xhs topics "美食"                      # 搜索话题
 
 # 阅读
+xhs read 1                             # 阅读最近一次列表里的第 1 条笔记
 xhs read <note_id>                     # 阅读笔记（仅走 API）
 xhs read "https://...?xsec_token=..."  # 粘贴网页 URL 直接阅读（使用 URL token）
+xhs comments 1                         # 查看最近一次列表里的第 1 条笔记评论
 xhs comments "<url>"                   # 查看评论 — 粘贴 URL 以缓存/复用 xsec_token
 xhs comments "<url>" --all             # 获取全部评论（自动翻页）
 xhs comments "<url>" --all --json      # 全部评论，JSON 格式
@@ -381,11 +391,16 @@ xhs follow <user_id>                   # 关注
 xhs unfollow <user_id>                 # 取消关注
 
 # 互动
+xhs like 1                             # 给最近一次列表里的第 1 条笔记点赞
 xhs like <note_id>                     # 点赞
 xhs like <note_id> --undo              # 取消点赞
+xhs favorite 1                         # 收藏最近一次列表里的第 1 条笔记
 xhs favorite <note_id>                 # 收藏
+xhs unfavorite 1                       # 取消收藏最近一次列表里的第 1 条笔记
 xhs unfavorite <note_id>               # 取消收藏
+xhs comment 1 -c "好棒！"              # 给最近一次列表里的第 1 条笔记发评论
 xhs comment <note_id> -c "好棒！"      # 发评论
+xhs reply 1 --comment-id X -c "谢谢"   # 给最近一次列表里的第 1 条笔记回复评论
 xhs reply <note_id> --comment-id X -c "谢谢"  # 回复评论
 xhs delete-comment <note_id> <cmt_id>  # 删除自己的评论
 

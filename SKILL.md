@@ -103,12 +103,12 @@ Payloads live under `.data`.
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `xhs like <id_or_url>` | Like a note | `xhs like abc123` |
-| `xhs like <id_or_url> --undo` | Unlike a note | `xhs like abc123 --undo` |
-| `xhs favorite <id_or_url>` | Bookmark a note | `xhs favorite abc123` |
-| `xhs unfavorite <id_or_url>` | Remove bookmark | `xhs unfavorite abc123` |
-| `xhs comment <id_or_url> -c "text"` | Post a comment | `xhs comment abc123 -c "好看！"` |
-| `xhs reply <id_or_url> --comment-id ID -c "text"` | Reply to comment | `xhs reply abc123 --comment-id 456 -c "谢谢"` |
+| `xhs like <id_or_url_or_index>` | Like a note | `xhs like 1` / `xhs like abc123` |
+| `xhs like <id_or_url_or_index> --undo` | Unlike a note | `xhs like 1 --undo` |
+| `xhs favorite <id_or_url_or_index>` | Bookmark a note | `xhs favorite 1` |
+| `xhs unfavorite <id_or_url_or_index>` | Remove bookmark | `xhs unfavorite 1` |
+| `xhs comment <id_or_url_or_index> -c "text"` | Post a comment | `xhs comment 1 -c "好看！"` |
+| `xhs reply <id_or_url_or_index> --comment-id ID -c "text"` | Reply to comment | `xhs reply 1 --comment-id 456 -c "谢谢"` |
 | `xhs delete-comment <note_id> <comment_id>` | Delete own comment | `xhs delete-comment abc 123 -y` |
 
 ### Social
@@ -185,6 +185,9 @@ xhs feed --yaml
 xhs search "旅行"
 xhs read 1
 xhs comments 1
+xhs like 1
+xhs favorite 1
+xhs comment 1 -c "收藏了"
 
 # Browse trending by category
 xhs hot -c food --yaml

@@ -1,5 +1,6 @@
 """Tests for CLI commands using Click's test runner."""
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -272,7 +273,7 @@ class TestCliBasic:
 
     def test_read_index_resolves_note_context(self, monkeypatch):
         monkeypatch.setattr(
-            "xhs_cli.commands.reading.get_note_by_index",
+            "xhs_cli.note_refs.get_note_by_index",
             lambda idx: {
                 "note_id": "note-abc",
                 "xsec_token": "token-abc",
@@ -303,7 +304,7 @@ class TestCliBasic:
 
     def test_comments_index_resolves_note_context(self, monkeypatch):
         monkeypatch.setattr(
-            "xhs_cli.commands.reading.get_note_by_index",
+            "xhs_cli.note_refs.get_note_by_index",
             lambda idx: {
                 "note_id": "note-abc",
                 "xsec_token": "token-abc",
@@ -333,7 +334,7 @@ class TestCliBasic:
         assert called["kwargs"]["xsec_source"] == "pc_search"
 
     def test_read_index_not_found_returns_usage_error(self, monkeypatch):
-        monkeypatch.setattr("xhs_cli.commands.reading.get_note_by_index", lambda idx: None)
+        monkeypatch.setattr("xhs_cli.note_refs.get_note_by_index", lambda idx: None)
 
         result = runner.invoke(cli, ["read", "999"])
 
@@ -341,18 +342,18 @@ class TestCliBasic:
         assert "999" in result.output
 
     def test_search_empty_results_clear_previous_index(self, monkeypatch):
-        from xhs_cli.commands.reading import _save_index_from_items
+        from xhs_cli.note_refs import save_index_from_items
 
         saved = []
-        monkeypatch.setattr("xhs_cli.commands.reading.save_note_index", lambda items: saved.append(items))
+        monkeypatch.setattr("xhs_cli.note_refs.save_note_index", lambda items: saved.append(items))
 
-        _save_index_from_items({"items": []}, xsec_source="pc_search")
+        save_index_from_items({"items": []}, xsec_source="pc_search")
 
         assert saved == [[]]
 
     def test_user_posts_saves_index_entries(self, monkeypatch):
         saved = []
-        monkeypatch.setattr("xhs_cli.commands.reading.save_note_index", lambda items: saved.append(items))
+        monkeypatch.setattr("xhs_cli.note_refs.save_note_index", lambda items: saved.append(items))
 
         def fake_handle_command(ctx, action, render, as_json, as_yaml):
             class FakeClient:
@@ -378,4 +379,166 @@ class TestCliBasic:
         assert saved == [[
             {"note_id": "note-1", "xsec_token": "", "xsec_source": ""},
             {"note_id": "note-2", "xsec_token": "ignored", "xsec_source": ""},
+        ]]
+
+    @pytest.mark.parametrize(
+        ("command", "extra_args", "method_name"),
+        [
+            ("like", [], "like_note"),
+            ("like", ["--undo"], "unlike_note"),
+            ("favorite", [], "favorite_note"),
+            ("unfavorite", [], "unfavorite_note"),
+        ],
+    )
+    def test_short_index_resolves_for_note_actions(self, monkeypatch, command, extra_args, method_name):
+        monkeypatch.setattr(
+            "xhs_cli.note_refs.get_note_by_index",
+            lambda idx: {
+                "note_id": "note-abc",
+                "xsec_token": "token-abc",
+                "xsec_source": "pc_search",
+            } if idx == 1 else None,
+        )
+
+        called = {}
+
+        class FakeClient:
+            def __getattr__(self, name):
+                if name != method_name:
+                    raise AttributeError(name)
+
+                def _call(note_id):
+                    called["method"] = name
+                    called["note_id"] = note_id
+                    return {"ok": True}
+
+                return _call
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            action(FakeClient())
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, [command, "1", *extra_args])
+
+        assert result.exit_code == 0
+        assert called == {"method": method_name, "note_id": "note-abc"}
+
+    def test_short_index_resolves_for_comment(self, monkeypatch):
+        monkeypatch.setattr(
+            "xhs_cli.note_refs.get_note_by_index",
+            lambda idx: {
+                "note_id": "note-abc",
+                "xsec_token": "token-abc",
+                "xsec_source": "pc_search",
+            } if idx == 1 else None,
+        )
+
+        called = {}
+
+        class FakeClient:
+            def post_comment(self, note_id, content):
+                called["note_id"] = note_id
+                called["content"] = content
+                return {"ok": True}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            action(FakeClient())
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, ["comment", "1", "-c", "hello"])
+
+        assert result.exit_code == 0
+        assert called == {"note_id": "note-abc", "content": "hello"}
+
+    def test_short_index_resolves_for_reply(self, monkeypatch):
+        monkeypatch.setattr(
+            "xhs_cli.note_refs.get_note_by_index",
+            lambda idx: {
+                "note_id": "note-abc",
+                "xsec_token": "token-abc",
+                "xsec_source": "pc_search",
+            } if idx == 1 else None,
+        )
+
+        called = {}
+
+        class FakeClient:
+            def reply_comment(self, note_id, comment_id, content):
+                called["note_id"] = note_id
+                called["comment_id"] = comment_id
+                called["content"] = content
+                return {"ok": True}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            action(FakeClient())
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, ["reply", "1", "--comment-id", "c-1", "-c", "hello"])
+
+        assert result.exit_code == 0
+        assert called == {"note_id": "note-abc", "comment_id": "c-1", "content": "hello"}
+
+    def test_favorites_saves_index_entries(self, monkeypatch):
+        saved = []
+        monkeypatch.setattr("xhs_cli.note_refs.save_note_index", lambda items: saved.append(items))
+        monkeypatch.setattr("xhs_cli.commands.social._resolve_user_id", lambda ctx, user_id: "user-1")
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            class FakeClient:
+                def get_user_favorites(self, user_id, cursor=""):
+                    return {
+                        "notes": [
+                            {"note_id": "note-1"},
+                            {"id": "note-2", "xsec_token": "token-2"},
+                        ],
+                        "has_more": False,
+                        "cursor": "",
+                    }
+
+            data = action(FakeClient())
+            render(data)
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.social.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, ["favorites"])
+
+        assert result.exit_code == 0
+        assert saved == [[
+            {"note_id": "note-1", "xsec_token": "", "xsec_source": ""},
+            {"note_id": "note-2", "xsec_token": "token-2", "xsec_source": ""},
+        ]]
+
+    def test_my_notes_saves_index_entries(self, monkeypatch):
+        saved = []
+        monkeypatch.setattr("xhs_cli.note_refs.save_note_index", lambda items: saved.append(items))
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            class FakeClient:
+                def get_creator_note_list(self, page=0):
+                    return {
+                        "note_list": [
+                            {"note_id": "note-1"},
+                            {"id": "note-2"},
+                        ]
+                    }
+
+            data = action(FakeClient())
+            render(data)
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.creator.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, ["my-notes"])
+
+        assert result.exit_code == 0
+        assert saved == [[
+            {"note_id": "note-1", "xsec_token": "", "xsec_source": ""},
+            {"note_id": "note-2", "xsec_token": "", "xsec_source": ""},
         ]]
