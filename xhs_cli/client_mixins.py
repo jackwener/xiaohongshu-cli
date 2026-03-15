@@ -546,6 +546,18 @@ class CreatorEndpointsMixin:
         permit = data["uploadTempPermits"][0]
         return {"fileId": permit["fileIds"][0], "token": permit["token"]}
 
+    def get_video_upload_permit(self, count: int = 1) -> dict[str, str]:
+        """获取视频上传许可"""
+        data = self._creator_get("/api/media/v1/upload/web/permit", {
+            "biz_name": "spectrum",
+            "scene": "video",
+            "file_count": count,
+            "version": 1,
+            "source": "web",
+        })
+        permit = data["uploadTempPermits"][0]
+        return {"fileId": permit["fileIds"][0], "token": permit["token"]}
+
     def upload_file(
         self,
         file_id: str,
@@ -570,6 +582,31 @@ class CreatorEndpointsMixin:
         if resp.status_code >= 400:
             raise XhsApiError(f"Upload failed: {resp.status_code} {resp.reason_phrase}")
 
+    def upload_video(
+        self,
+        file_id: str,
+        token: str,
+        file_path: str,
+        content_type: str | None = None,
+    ) -> None:
+        """上传视频文件"""
+        with open(file_path, "rb") as f:
+            file_data = f.read()
+
+        url = f"{UPLOAD_HOST}/{file_id}"
+        content_type = content_type or mimetypes.guess_type(file_path)[0] or "video/mp4"
+        resp = self._request_with_retry(
+            "PUT",
+            url,
+            headers={
+                "X-Cos-Security-Token": token,
+                "Content-Type": content_type,
+            },
+            content=file_data,
+        )
+        if resp.status_code >= 400:
+            raise XhsApiError(f"Video upload failed: {resp.status_code} {resp.reason_phrase}")
+
     def create_image_note(
         self,
         title: str,
@@ -593,7 +630,7 @@ class CreatorEndpointsMixin:
                 "note_id": "",
                 "desc": desc,
                 "source": '{"type":"web","ids":"","extraInfo":"{\\"subType\\":\\"official\\"}"}',
-                "business_binds": json.dumps(business_binds),
+                "business_binds": json.dumps(business_binds, ensure_ascii=False),
                 "ats": [],
                 "hash_tag": topics or [],
                 "post_loc": {},
@@ -602,10 +639,55 @@ class CreatorEndpointsMixin:
             "image_info": {"images": images},
             "video_info": None,
         }
-        return self._main_api_post("/web_api/sns/v2/note", data, {
-            "origin": CREATOR_HOST,
-            "referer": f"{CREATOR_HOST}/",
-        })
+        return self._creator_post("/web_api/sns/v2/note", data)
+
+    def create_video_note(
+        self,
+        title: str,
+        desc: str,
+        video_file_id: str,
+        cover_file_id: str | None = None,
+        topics: list[dict[str, str]] | None = None,
+        is_private: bool = False,
+    ) -> Any:
+        """创建视频笔记"""
+        # 视频信息
+        video_info = {
+            "file_id": video_file_id,
+            "metadata": {"source": -1}
+        }
+        
+        # 封面信息（如果有）
+        images = []
+        if cover_file_id:
+            images = [{"file_id": cover_file_id, "metadata": {"source": -1}}]
+        
+        business_binds = {
+            "version": 1,
+            "noteId": 0,
+            "noteOrderBind": {},
+            "notePostTiming": {"postTime": None},
+            "noteCollectionBind": {"id": ""},
+        }
+        
+        data = {
+            "common": {
+                "type": "video",
+                "title": title,
+                "note_id": "",
+                "desc": desc,
+                "source": '{"type":"web","ids":"","extraInfo":"{\\"subType\\":\\"official\\"}"}',
+                "business_binds": json.dumps(business_binds, ensure_ascii=False),
+                "ats": [],
+                "hash_tag": topics or [],
+                "post_loc": {},
+                "privacy_info": {"op_type": 1, "type": 1 if is_private else 0},
+            },
+            "image_info": {"images": images} if images else None,
+            "video_info": video_info,
+        }
+        
+        return self._creator_post("/web_api/sns/v2/note", data)
 
     def delete_note(self, note_id: str) -> dict[str, Any]:
         try:
