@@ -18,7 +18,7 @@ from ._common import exit_for_error, handle_command, run_client_action, structur
 @click.option("--title", required=True, help="Note title")
 @click.option("--body", required=True, help="Note body text")
 @click.option("--images", required=True, multiple=True, help="Image file path(s)")
-@click.option("--topic", default=None, help="Topic/hashtag to search and attach")
+@click.option("--topic", "topics_flag", multiple=True, help="Topic(s)/hashtag(s) to search and attach")
 @click.option("--private", "is_private", is_flag=True, help="Publish as private note")
 @structured_output_options
 @click.pass_context
@@ -27,13 +27,14 @@ def post(
     title: str,
     body: str,
     images: tuple[str, ...],
-    topic: str | None,
+    topics_flag: tuple[str, ...],
     is_private: bool,
     as_json: bool,
     as_yaml: bool,
 ):
     """Publish an image note."""
     def _publish(client):
+        import re
         file_ids = []
         for img_path in images:
             print_info(f"Uploading {img_path}...")
@@ -42,16 +43,28 @@ def post(
             file_ids.append(permit["fileId"])
             print_success(f"Uploaded: {img_path}")
 
-        topics = []
-        if topic:
-            topic_data = client.search_topics(topic)
-            topics = select_topic_payload(topic_data, topic)
+        # Combine CLI --topic flags with hashtags found in the body text
+        body_hashtags = re.findall(r'#([^\s#]+)', body)
+        all_topics = list(topics_flag) + body_hashtags
+        
+        # Deduplicate while preserving order
+        unique_topics = []
+        seen = set()
+        for t in all_topics:
+            if t not in seen:
+                seen.add(t)
+                unique_topics.append(t)
+
+        resolved_topics = []
+        for t in unique_topics:
+            topic_data = client.search_topics(t)
+            resolved_topics.extend(select_topic_payload(topic_data, t))
 
         return client.create_image_note(
             title=title,
             desc=body,
             image_file_ids=file_ids,
-            topics=topics,
+            topics=resolved_topics,
             is_private=is_private,
         )
 
