@@ -26,8 +26,15 @@ Usage:
 from __future__ import annotations
 
 import logging
+import sys
 
 import click
+
+# Fix Windows terminal encoding: default codepage 936 (GBK) garbles UTF-8 output
+if sys.platform == "win32":
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(encoding="utf-8", errors="replace")
 
 from . import __version__
 from .commands import auth, creator, interactions, notifications, reading, social
