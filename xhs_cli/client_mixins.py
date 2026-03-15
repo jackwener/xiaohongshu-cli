@@ -644,6 +644,13 @@ class SocialEndpointsMixin:
             "num": 30,
         })
 
+    def get_user_likes(self, user_id: str, cursor: str = "") -> dict[str, Any]:
+        return self._main_api_get("/api/sns/web/v1/note/like/page", {
+            "user_id": user_id,
+            "cursor": cursor,
+            "num": 30,
+        })
+
 
 class NotificationEndpointsMixin:
     """Notification and unread-count endpoints."""

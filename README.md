@@ -110,6 +110,8 @@ xhs favorite 1
 # ─── Social ───────────────────────────────────────
 xhs favorites                          # My bookmarked notes (current user)
 xhs favorites <user_id>                # Other user's bookmarked notes
+xhs likes                             # My liked notes (current user)
+xhs likes <user_id>                   # Other user's liked notes
 xhs follow <user_id>                   # Follow a user
 xhs unfollow <user_id>                 # Unfollow a user
 
@@ -392,6 +394,8 @@ xhs hot -c travel                     # 分类: fashion, food, cosmetics, movie,
 # 社交
 xhs favorites                          # 我的收藏（自动识别当前用户）
 xhs favorites <user_id>                # 其他用户的收藏
+xhs likes                            # 我的点赞（自动识别当前用户）
+xhs likes <user_id>                  # 其他用户的点赞
 xhs follow <user_id>                   # 关注
 xhs unfollow <user_id>                 # 取消关注
 
