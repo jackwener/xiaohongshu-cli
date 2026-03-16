@@ -77,3 +77,33 @@ def favorites(ctx, user_id: str | None, cursor: str, as_json: bool, as_yaml: boo
         as_json=as_json,
         as_yaml=as_yaml,
     )
+
+
+@click.command()
+@click.argument("user_id", required=False, default=None)
+@click.option("--cursor", default="", help="Pagination cursor")
+@structured_output_options
+@click.pass_context
+def likes(ctx, user_id: str | None, cursor: str, as_json: bool, as_yaml: bool):
+    """List liked notes. Defaults to current user if user_id is omitted."""
+    uid = _resolve_user_id(ctx, user_id)
+
+    def _likes_action(client):
+        data = client.get_user_likes(uid, cursor=cursor)
+        page = normalize_paged_notes(data)
+        save_index_from_notes(page["notes"])
+        return data
+
+    def _render_likes(data):
+        page = normalize_paged_notes(data)
+        render_user_posts(page["notes"])
+        if page["has_more"]:
+            print_info(f"More notes — use --cursor {page['cursor']}")
+
+    handle_command(
+        ctx,
+        action=_likes_action,
+        render=_render_likes,
+        as_json=as_json,
+        as_yaml=as_yaml,
+    )
