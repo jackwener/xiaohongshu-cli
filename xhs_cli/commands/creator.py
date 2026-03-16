@@ -1,5 +1,6 @@
 """Creator commands: post, my-notes, delete."""
 
+import re
 import click
 
 from ..command_normalizers import select_topic_payload
@@ -13,6 +14,10 @@ from ..formatter import (
 from ..note_refs import save_index_from_notes
 from ._common import exit_for_error, handle_command, run_client_action, structured_output_options
 
+
+
+def extract_hashtags(body: str) -> list[str]:
+    return re.findall(r"(?:^|(?<=\s))#([^\s#]+)", body)
 
 @click.command()
 @click.option("--title", required=True, help="Note title")
@@ -34,7 +39,6 @@ def post(
 ):
     """Publish an image note."""
     def _publish(client):
-        import re
         file_ids = []
         for img_path in images:
             print_info(f"Uploading {img_path}...")
@@ -44,7 +48,7 @@ def post(
             print_success(f"Uploaded: {img_path}")
 
         # Combine CLI --topic flags with hashtags found in the body text
-        body_hashtags = re.findall(r'#([^\s#]+)', body)
+        body_hashtags = extract_hashtags(body)
         all_topics = list(topics_flag) + body_hashtags
         
         # Deduplicate while preserving order
