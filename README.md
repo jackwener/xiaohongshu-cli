@@ -24,7 +24,7 @@ A CLI for Xiaohongshu (小红书) — search, read, interact, and post via rever
 - 📰 **Feed** — recommendation feed, hot/trending by category
 - 👥 **Social** — follow/unfollow, favorites
 - 👍 **Interactions** — like, favorite, comment, reply, delete
-- ✍️ **Creator** — post image notes, my-notes list, delete
+- ✍️ **Creator** — post image/video notes, my-notes list, delete
 - 🔔 **Notifications** — unread count, mentions, likes, new followers
 - 🛡️ **Anti-detection** — consistent macOS Chrome fingerprint, `sec-ch-ua` alignment, session-stable browser identity, Gaussian jitter, captcha cooldown, exponential backoff
 - 📊 **Structured output** — commands support `--yaml` and `--json`; non-TTY stdout defaults to YAML
@@ -132,7 +132,9 @@ xhs delete-comment <note_id> <cmt_id> # Delete own comment
 # ─── Creator ─────────────────────────────────────
 xhs my-notes                           # List own notes (v2 creator endpoint)
 xhs my-notes --page 1                 # Next page
-xhs post --title "标题" --body "正文" --images img.jpg  # Post note
+xhs post --title "标题" --body "正文" --images img.jpg  # Post image note
+xhs post-video --title "标题" --body "正文" --video video.mp4  # Post video note
+xhs post-video --title "标题" --body "正文" --video video.mov --cover cover.jpg  # Post video with custom cover
 xhs delete <note_id>                   # Delete note
 xhs delete <note_id> -y               # Skip confirmation
 
@@ -322,7 +324,7 @@ The built-in Gaussian jitter delay (~1-1.5s between requests) is intentional to 
 - 📰 **发现** — 推荐 Feed、按分类浏览热门
 - 👥 **社交** — 关注/取关、收藏夹
 - 👍 **互动** — 点赞、收藏、评论、回复、删除
-- ✍️ **创作者** — 发布图文笔记、我的笔记列表、删除
+- ✍️ **创作者** — 发布图文/视频笔记、我的笔记列表、删除
 - 🔔 **通知** — 未读数、@、点赞、新关注
 - 🛡️ **反风控** — macOS Chrome 指纹一致性、session 级浏览器身份持久化、高斯抖动延迟、验证码自动冷却、指数退避重试
 - 📊 **结构化输出** — `--yaml` / `--json`，非 TTY 默认输出 YAML
@@ -415,7 +417,9 @@ xhs delete-comment <note_id> <cmt_id>  # 删除自己的评论
 
 # 创作者
 xhs my-notes                           # 我的笔记列表
-xhs post --title "标题" --body "正文" --images img.jpg  # 发布笔记
+xhs post --title "标题" --body "正文" --images img.jpg  # 发布图文笔记
+xhs post-video --title "标题" --body "正文" --video video.mp4  # 发布视频笔记
+xhs post-video --title "标题" --body "正文" --video video.mov --cover cover.jpg  # 发布视频笔记（自定义封面）
 xhs delete <note_id>                   # 删除笔记
 xhs delete <note_id> -y                # 跳过确认
 

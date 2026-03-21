@@ -3,6 +3,7 @@
 import re
 
 import click
+import os
 
 from ..command_normalizers import select_topic_payload
 from ..formatter import (
@@ -123,3 +124,72 @@ def delete(ctx, id_or_url: str, as_json: bool, as_yaml: bool, yes: bool):
             print_success(f"Deleted note {note_id}")
     except Exception as exc:
         exit_for_error(exc, as_json=as_json, as_yaml=as_yaml)
+
+
+@click.command("post-video")
+@click.option("--title", required=True, help="Video note title")
+@click.option("--body", required=True, help="Video note body text")
+@click.option("--video", required=True, help="Video file path (.mp4/.mov)")
+@click.option("--cover", help="Cover image file path (optional)")
+@click.option("--topic", default=None, help="Topic/hashtag to search and attach")
+@click.option("--private", "is_private", is_flag=True, help="Publish as private note")
+@structured_output_options
+@click.pass_context
+def post_video(
+    ctx,
+    title: str,
+    body: str,
+    video: str,
+    cover: str | None,
+    topic: str | None,
+    is_private: bool,
+    as_json: bool,
+    as_yaml: bool,
+):
+    """Publish a video note."""
+    def _publish(client):
+        # 验证视频文件
+        if not os.path.exists(video):
+            raise FileNotFoundError(f"Video file not found: {video}")
+        
+        # 上传视频
+        print_info(f"Uploading video {video}...")
+        video_permit = client.get_video_upload_permit()
+        client.upload_video(video_permit["fileId"], video_permit["token"], video)
+        video_file_id = video_permit["fileId"]
+        print_success(f"Uploaded video: {video}")
+        
+        # 上传封面（如果提供）
+        cover_file_id = None
+        if cover:
+            if not os.path.exists(cover):
+                raise FileNotFoundError(f"Cover image not found: {cover}")
+            print_info(f"Uploading cover {cover}...")
+            cover_permit = client.get_upload_permit()
+            client.upload_file(cover_permit["fileId"], cover_permit["token"], cover)
+            cover_file_id = cover_permit["fileId"]
+            print_success(f"Uploaded cover: {cover}")
+        
+        # 处理话题
+        topics = []
+        if topic:
+            topic_data = client.search_topics(topic)
+            topics = select_topic_payload(topic_data, topic)
+        
+        # 创建视频笔记
+        return client.create_video_note(
+            title=title,
+            desc=body,
+            video_file_id=video_file_id,
+            cover_file_id=cover_file_id,
+            topics=topics,
+            is_private=is_private,
+        )
+
+    handle_command(
+        ctx,
+        action=_publish,
+        render=lambda _data: print_success(f"Video note published: {title}" + (" (private)" if is_private else "")),
+        as_json=as_json,
+        as_yaml=as_yaml,
+    )
