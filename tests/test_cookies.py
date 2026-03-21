@@ -1,15 +1,22 @@
 """Unit tests for cookie management (no network required)."""
 
 
+import sys
 import time
+import types
+from pathlib import Path
 
 import pytest
 
 from xhs_cli.cookies import (
     NOTE_CONTEXT_TTL_SECONDS,
+    _available_browsers,
+    _cookies_for_domain,
+    _extract_via_subprocess,
     cache_note_context,
     clear_cookies,
     cookies_to_string,
+    extract_browser_cookies,
     get_cached_note_context,
     get_cached_xsec_token,
     get_cookies,
@@ -84,6 +91,26 @@ class TestCookiesToString:
         assert "; " in result
 
 
+class TestCookieDomainFiltering:
+    def test_matches_exact_domain_and_subdomains_only(self):
+        class FakeCookie:
+            def __init__(self, name: str, value: str, domain: str):
+                self.name = name
+                self.value = value
+                self.domain = domain
+
+        cookies = _cookies_for_domain(
+            [
+                FakeCookie("exact", "1", ".xiaohongshu.com"),
+                FakeCookie("subdomain", "2", ".www.xiaohongshu.com"),
+                FakeCookie("unrelated", "3", ".fake-xiaohongshu.com"),
+            ],
+            ".xiaohongshu.com",
+        )
+
+        assert cookies == {"exact": "1", "subdomain": "2"}
+
+
 class TestGetCookies:
     def test_prefers_saved_cookies_by_default(self, monkeypatch):
         monkeypatch.setattr("xhs_cli.cookies.load_saved_cookies", lambda: {"a1": "saved"})
@@ -109,6 +136,96 @@ class TestGetCookies:
         assert browser == "chrome"
         assert cookies == {"a1": "fresh"}
         assert saved == [{"a1": "fresh"}]
+
+    def test_extract_browser_cookies_supports_comet(self, tmp_path, monkeypatch):
+        comet_dir = tmp_path / "Library" / "Application Support" / "Comet"
+        default_dir = comet_dir / "Default"
+        default_dir.mkdir(parents=True)
+        (default_dir / "Cookies").write_text("placeholder")
+
+        captured: list[dict[str, object]] = []
+
+        class FakeCookie:
+            def __init__(self, name: str, value: str, domain: str):
+                self.name = name
+                self.value = value
+                self.domain = domain
+
+        class FakeChromiumBased:
+            def __init__(self, **kwargs):
+                captured.append(kwargs)
+
+            def load(self):
+                return [
+                    FakeCookie("a1", "comet-a1", ".xiaohongshu.com"),
+                    FakeCookie("web_session", "session", ".xiaohongshu.com"),
+                ]
+
+        fake_bc3 = types.SimpleNamespace(ChromiumBased=FakeChromiumBased)
+        monkeypatch.setitem(sys.modules, "browser_cookie3", fake_bc3)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+        browser, cookies = extract_browser_cookies("comet")
+
+        assert browser == "comet"
+        assert cookies["a1"] == "comet-a1"
+        assert captured == [
+            {
+                "browser": "Comet",
+                "cookie_file": str(default_dir / "Cookies"),
+                "domain_name": ".xiaohongshu.com",
+                "os_crypt_name": "chrome",
+                "osx_key_service": "Comet Safe Storage",
+                "osx_key_user": "Comet",
+            }
+        ]
+
+    def test_available_browsers_includes_comet(self, monkeypatch):
+        def fake_loader(domain_name=""):
+            return None
+
+        fake_bc3 = types.SimpleNamespace(chrome=fake_loader)
+        monkeypatch.setitem(sys.modules, "browser_cookie3", fake_bc3)
+        _available_browsers.cache_clear()
+
+        try:
+            assert "comet" in _available_browsers()
+        finally:
+            _available_browsers.cache_clear()
+
+    def test_custom_browser_falls_back_to_custom_subprocess_when_no_native_loader(self, monkeypatch):
+        fake_bc3 = types.SimpleNamespace(chrome=lambda domain_name="": None)
+        monkeypatch.setitem(sys.modules, "browser_cookie3", fake_bc3)
+        monkeypatch.setattr(
+            "xhs_cli.cookies._load_custom_browser_cookies_subprocess",
+            lambda source, domain_name: {"a1": "custom-subprocess"},
+        )
+
+        cookies = _extract_via_subprocess("comet")
+
+        assert cookies == {"a1": "custom-subprocess"}
+
+    def test_extract_browser_cookies_prefers_native_loader_when_available(self, monkeypatch):
+        class FakeCookie:
+            def __init__(self, name: str, value: str, domain: str):
+                self.name = name
+                self.value = value
+                self.domain = domain
+
+        def comet(domain_name=""):
+            return [FakeCookie("a1", "native-a1", ".xiaohongshu.com")]
+
+        fake_bc3 = types.SimpleNamespace(comet=comet)
+        monkeypatch.setitem(sys.modules, "browser_cookie3", fake_bc3)
+        monkeypatch.setattr(
+            "xhs_cli.cookies._load_custom_browser_cookies",
+            lambda *args, **kwargs: pytest.fail("custom fallback should not run when native loader succeeds"),
+        )
+
+        browser, cookies = extract_browser_cookies("comet")
+
+        assert browser == "comet"
+        assert cookies == {"a1": "native-a1"}
 
 
 class TestNoteContextCache:

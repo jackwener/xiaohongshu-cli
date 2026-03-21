@@ -17,6 +17,22 @@ from .constants import CONFIG_DIR_NAME, COOKIE_FILE, INDEX_CACHE_FILE, TOKEN_CAC
 
 logger = logging.getLogger(__name__)
 
+CUSTOM_BROWSER_COOKIE_CONFIGS: dict[str, dict[str, Any]] = {
+    "comet": {
+        "browser": "Comet",
+        "os_crypt_name": "chrome",
+        "osx_key_service": "Comet Safe Storage",
+        "osx_key_user": "Comet",
+        "base_dir": ("Library", "Application Support", "Comet"),
+        "cookie_patterns": (
+            "Default/Cookies",
+            "Default/Network/Cookies",
+            "Profile */Cookies",
+            "Profile */Network/Cookies",
+        ),
+    }
+}
+
 # Cookie TTL: warn and attempt browser refresh after 7 days
 COOKIE_TTL_DAYS = 7
 _COOKIE_TTL_SECONDS = COOKIE_TTL_DAYS * 86400
@@ -323,7 +339,7 @@ def _available_browsers() -> tuple[str, ...]:
 
     import browser_cookie3 as bc3
 
-    return tuple(sorted(
+    standard = {
         name
         for name in dir(bc3)
         if not name.startswith("_")
@@ -331,19 +347,165 @@ def _available_browsers() -> tuple[str, ...]:
         and callable(getattr(bc3, name))
         and hasattr(getattr(bc3, name), "__code__")
         and "domain_name" in inspect.signature(getattr(bc3, name)).parameters
-    ))
+    }
+    return tuple(sorted(standard | set(CUSTOM_BROWSER_COOKIE_CONFIGS)))
+
+
+def _get_custom_browser_config(source: str) -> dict[str, Any] | None:
+    return CUSTOM_BROWSER_COOKIE_CONFIGS.get(source.lower())
+
+
+def _iter_custom_browser_cookie_files(source: str) -> list[Path]:
+    config = _get_custom_browser_config(source)
+    if not config:
+        return []
+
+    base_dir = Path.home().joinpath(*config["base_dir"])
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in config["cookie_patterns"]:
+        for path in sorted(base_dir.glob(pattern)):
+            if not path.is_file() or path in seen:
+                continue
+            seen.add(path)
+            candidates.append(path)
+    return candidates
+
+
+def _cookies_for_domain(cookie_jar: Any, domain_name: str) -> dict[str, str]:
+    target_domain = domain_name.lstrip(".").lower()
+
+    def _matches(cookie_domain: str | None) -> bool:
+        normalized = (cookie_domain or "").lstrip(".").lower()
+        return normalized == target_domain or normalized.endswith(f".{target_domain}")
+
+    return {
+        cookie.name: cookie.value
+        for cookie in cookie_jar
+        if _matches(cookie.domain)
+    }
+
+
+def _load_custom_browser_cookies(source: str, domain_name: str) -> dict[str, str] | None:
+    config = _get_custom_browser_config(source)
+    if not config:
+        return None
+
+    try:
+        import browser_cookie3 as bc3
+    except ImportError:
+        logger.debug("browser_cookie3 not installed, skipping %s extraction", source)
+        return None
+
+    for cookie_file in _iter_custom_browser_cookie_files(source):
+        try:
+            loader = bc3.ChromiumBased(
+                browser=config["browser"],
+                cookie_file=str(cookie_file),
+                domain_name=domain_name,
+                os_crypt_name=config["os_crypt_name"],
+                osx_key_service=config["osx_key_service"],
+                osx_key_user=config["osx_key_user"],
+            )
+            jar = loader.load()
+        except Exception as exc:
+            logger.debug("%s custom extraction failed for %s: %s", source, cookie_file, exc)
+            continue
+
+        cookies = _cookies_for_domain(jar, domain_name)
+        if cookies.get("a1"):
+            logger.debug("Loaded XHS cookies from %s profile %s", source, cookie_file)
+            return cookies
+
+    logger.debug("No usable a1 cookie found in %s custom profile scan", source)
+    return None
+
+
+def _load_custom_browser_cookies_subprocess(source: str, domain_name: str) -> dict[str, str] | None:
+    config = _get_custom_browser_config(source)
+    if not config:
+        return None
+
+    extract_script = '''
+import json, sys
+from pathlib import Path
+
+try:
+    import browser_cookie3 as bc3
+except ImportError:
+    print(json.dumps({"error": "browser-cookie3 not installed"}))
+    sys.exit(0)
+
+config = json.loads(sys.argv[1])
+domain_name = sys.argv[2]
+target_domain = domain_name.lstrip(".").lower()
+base_dir = Path.home().joinpath(*config["base_dir"])
+
+def cookies_for_domain(cookie_jar):
+    cookies = {}
+    for cookie in cookie_jar:
+        normalized = (cookie.domain or "").lstrip(".").lower()
+        if normalized == target_domain or normalized.endswith(f".{target_domain}"):
+            cookies[cookie.name] = cookie.value
+    return cookies
+
+for pattern in config["cookie_patterns"]:
+    for cookie_file in sorted(base_dir.glob(pattern)):
+        if not cookie_file.is_file():
+            continue
+        try:
+            loader = bc3.ChromiumBased(
+                browser=config["browser"],
+                cookie_file=str(cookie_file),
+                domain_name=domain_name,
+                os_crypt_name=config["os_crypt_name"],
+                osx_key_service=config["osx_key_service"],
+                osx_key_user=config["osx_key_user"],
+            )
+            cookies = cookies_for_domain(loader.load())
+        except Exception:
+            continue
+
+        if cookies.get("a1"):
+            print(json.dumps({"browser": config["browser"], "cookies": cookies}))
+            sys.exit(0)
+
+print(json.dumps({"error": "no_a1_cookie"}))
+'''
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", extract_script, json.dumps(config), domain_name],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+        if result.returncode != 0:
+            logger.debug("Cookie extraction subprocess failed: %s", result.stderr)
+            return None
+
+        data = json.loads(result.stdout.strip())
+        if "error" in data:
+            logger.debug("Cookie extraction error: %s", data["error"])
+            return None
+
+        return data["cookies"]
+    except subprocess.TimeoutExpired:
+        logger.debug("Cookie extraction timed out")
+        return None
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.debug("Cookie extraction parse error: %s", e)
+        return None
 
 
 def _get_browser_loader(source: str):
-    """Get browser cookie loader from browser_cookie3 by name."""
+    """Get a native browser_cookie3 loader by name, if available."""
     import browser_cookie3 as bc3
 
     loader = getattr(bc3, source, None)
     if loader is None or not callable(loader):
-        available = _available_browsers()
-        raise ValueError(
-            f"Unknown browser: {source!r}. Available: {', '.join(available)}"
-        )
+        return None
     return loader
 
 
@@ -354,27 +516,33 @@ def _extract_in_process(source: str) -> dict[str, str] | None:
     except ImportError:
         logger.debug("browser_cookie3 not installed, skipping in-process extraction")
         return None
-    except ValueError as exc:
-        logger.debug("%s", exc)
-        return None
 
-    try:
-        jar = loader(domain_name=".xiaohongshu.com")
-    except Exception as exc:
-        logger.debug("%s in-process extraction failed: %s", source, exc)
-        return None
+    if loader is not None:
+        try:
+            jar = loader(domain_name=".xiaohongshu.com")
+        except Exception as exc:
+            logger.debug("%s in-process extraction failed: %s", source, exc)
+        else:
+            cookies = _cookies_for_domain(jar, ".xiaohongshu.com")
+            if cookies.get("a1"):
+                logger.debug("Loaded XHS cookies from %s in-process", source)
+                return cookies
+            logger.debug("No usable a1 cookie found in %s in-process extraction", source)
 
-    cookies = {cookie.name: cookie.value for cookie in jar if "xiaohongshu.com" in (cookie.domain or "")}
-    if cookies.get("a1"):
-        logger.debug("Loaded XHS cookies from %s in-process", source)
-        return cookies
+    if _get_custom_browser_config(source):
+        return _load_custom_browser_cookies(source, ".xiaohongshu.com")
 
-    logger.debug("No usable a1 cookie found in %s in-process extraction", source)
     return None
 
 
 def _extract_via_subprocess(source: str) -> dict[str, str] | None:
     """Extract cookies via subprocess to avoid browser SQLite locks."""
+    try:
+        native_loader = _get_browser_loader(source)
+    except ImportError:
+        logger.debug("browser_cookie3 not installed, skipping subprocess extraction")
+        native_loader = None
+
     extract_script = '''
 import json, sys
 try:
@@ -391,7 +559,13 @@ if not loader or not callable(loader):
 
 try:
     cj = loader(domain_name=".xiaohongshu.com")
-    cookies = {c.name: c.value for c in cj if "xiaohongshu.com" in (c.domain or "")}
+    target_domain = "xiaohongshu.com"
+    cookies = {
+        c.name: c.value
+        for c in cj
+        if (c.domain or "").lstrip(".").lower() == target_domain
+        or (c.domain or "").lstrip(".").lower().endswith(f".{target_domain}")
+    }
     if cookies.get("a1"):
         print(json.dumps({"browser": source, "cookies": cookies}))
     else:
@@ -400,31 +574,33 @@ except Exception as e:
     print(json.dumps({"error": str(e)}))
 '''
 
-    try:
-        result = subprocess.run(
-            [sys.executable, "-c", extract_script, source],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
+    if native_loader is not None:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", extract_script, source],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
 
-        if result.returncode != 0:
-            logger.debug("Cookie extraction subprocess failed: %s", result.stderr)
-            return None
+            if result.returncode != 0:
+                logger.debug("Cookie extraction subprocess failed: %s", result.stderr)
+            else:
+                data = json.loads(result.stdout.strip())
+                if "error" in data:
+                    logger.debug("Cookie extraction error: %s", data["error"])
+                else:
+                    return data["cookies"]
 
-        data = json.loads(result.stdout.strip())
-        if "error" in data:
-            logger.debug("Cookie extraction error: %s", data["error"])
-            return None
+        except subprocess.TimeoutExpired:
+            logger.debug("Cookie extraction timed out")
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.debug("Cookie extraction parse error: %s", e)
 
-        return data["cookies"]
+    if _get_custom_browser_config(source):
+        return _load_custom_browser_cookies_subprocess(source, ".xiaohongshu.com")
 
-    except subprocess.TimeoutExpired:
-        logger.debug("Cookie extraction timed out")
-        return None
-    except (json.JSONDecodeError, KeyError) as e:
-        logger.debug("Cookie extraction parse error: %s", e)
-        return None
+    return None
 
 
 def extract_browser_cookies(source: str = "auto") -> tuple[str, dict[str, str]] | None:
