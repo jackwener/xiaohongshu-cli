@@ -1,6 +1,7 @@
 """Creator commands: post, my-notes, delete."""
 
 import re
+
 import click
 
 from ..command_normalizers import select_topic_payload
@@ -15,9 +16,14 @@ from ..note_refs import save_index_from_notes
 from ._common import exit_for_error, handle_command, run_client_action, structured_output_options
 
 
-
 def extract_hashtags(body: str) -> list[str]:
+    """Extract hashtag names from body text.
+
+    Matches '#tag' at start-of-string or preceded by whitespace.
+    Does not match URL fragments like 'https://example.com#section'.
+    """
     return re.findall(r"(?:^|(?<=\s))#([^\s#]+)", body)
+
 
 @click.command()
 @click.option("--title", required=True, help="Note title")
@@ -50,14 +56,11 @@ def post(
         # Combine CLI --topic flags with hashtags found in the body text
         body_hashtags = extract_hashtags(body)
         all_topics = list(topics_flag) + body_hashtags
-        
-        # Deduplicate while preserving order
-        unique_topics = []
-        seen = set()
-        for t in all_topics:
-            if t not in seen:
-                seen.add(t)
-                unique_topics.append(t)
+        unique_topics = list(dict.fromkeys(all_topics))  # deduplicate, preserve order
+
+        if len(unique_topics) > 10:
+            print_info(f"Found {len(unique_topics)} topics, using first 10")
+            unique_topics = unique_topics[:10]
 
         resolved_topics = []
         for t in unique_topics:
