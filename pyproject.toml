@@ -27,6 +27,7 @@ dependencies = [
     "xhshow>=0.1.9",
     "PyYAML>=6.0",
     "qrcode>=7.0",
+    "pillow>=10.0",
     "camoufox>=0.4.11",
 ]
 

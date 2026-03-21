@@ -447,6 +447,7 @@ def _http_qrcode_login(
     *,
     on_status: callable[[str], None] | None = None,
     timeout_s: int = POLL_TIMEOUT_S,
+    qrcode_image: str | None = None,
 ) -> dict[str, str]:
     """Run the legacy pure-HTTP QR login flow."""
     a1 = _generate_a1()
@@ -475,9 +476,26 @@ def _http_qrcode_login(
         logger.debug("QR created: qr_id=%s, code=%s", qr_id, code)
 
         _emit_status(on_status, "\n📱 Scan the QR code below with the Xiaohongshu app:\n")
+
+        # Always print a usable URL for remote environments.
+        _emit_status(on_status, f"QR URL: {qr_url}")
+
+        # Optionally save a PNG for reliable scanning when terminal QR is mangled by chat tools.
+        if qrcode_image:
+            try:
+                import qrcode
+
+                img = qrcode.make(qr_url)
+                save_target = img.get_image() if hasattr(img, "get_image") else img
+                save_target.save(qrcode_image)
+                _emit_status(on_status, f"🖼️  QR image saved to: {qrcode_image}")
+            except Exception as exc:
+                logger.debug("Failed to save QR image: %s", exc)
+                _emit_status(on_status, f"⚠️  Failed to save QR image to {qrcode_image}: {exc}")
+
         if not _display_qr_in_terminal(qr_url):
             _emit_status(on_status, "⚠️  Install 'qrcode' for terminal rendering: pip install qrcode")
-            _emit_status(on_status, f"QR URL: {qr_url}")
+
         _emit_status(on_status, "\n⏳ Waiting for QR code scan...")
 
         start = time.time()
@@ -537,6 +555,7 @@ def qrcode_login(
     on_status: callable[[str], None] | None = None,
     timeout_s: int = POLL_TIMEOUT_S,
     prefer_browser_assisted: bool = False,
+    qrcode_image: str | None = None,
 ) -> dict[str, str]:
     """Run the QR code login flow."""
     if prefer_browser_assisted:
@@ -545,4 +564,4 @@ def qrcode_login(
         except BrowserQrLoginUnavailable as exc:
             logger.info("Browser-assisted QR login unavailable, falling back to HTTP flow: %s", exc)
 
-    return _http_qrcode_login(on_status=on_status, timeout_s=timeout_s)
+    return _http_qrcode_login(on_status=on_status, timeout_s=timeout_s, qrcode_image=qrcode_image)

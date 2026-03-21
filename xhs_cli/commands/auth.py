@@ -57,15 +57,23 @@ def _print_status_summary(user: dict[str, object]) -> None:
 @structured_output_options
 @click.option("--qrcode", "use_qrcode", is_flag=True, default=False,
               help="Login via QR code (scan with Xiaohongshu app)")
+@click.option(
+    "--qrcode-image",
+    type=click.Path(dir_okay=False, writable=True, path_type=str),
+    default=None,
+    help="Save QR code as an image file (PNG). Useful for remote/headless servers.",
+)
 @click.pass_context
-def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrcode: bool):
+def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrcode: bool, qrcode_image: str | None):
     """Log in by extracting cookies from browser, or via QR code."""
 
     if use_qrcode:
         def _login_with_qrcode() -> None:
             from ..qr_login import qrcode_login
 
-            cookies = qrcode_login(prefer_browser_assisted=True)
+            # Prefer pure-HTTP QR login in headless/server environments.
+            # If qrcode_image is provided, also save a PNG for reliable remote scanning.
+            cookies = qrcode_login(prefer_browser_assisted=False, qrcode_image=qrcode_image)
 
             # Verify by fetching user info (may return guest=true briefly)
             import time
