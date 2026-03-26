@@ -51,14 +51,21 @@ class NoCookieError(XhsApiError):
     """Raised when no valid cookies are found."""
 
     def __init__(self, source: str, details: str = ""):
-        if source == "auto":
+        if source == "cookiecloud":
+            msg = "No usable Xiaohongshu cookies were found in CookieCloud."
+        elif source == "auto":
             msg = "No 'a1' cookie found for xiaohongshu.com in any installed browser."
         else:
             msg = f"No 'a1' cookie found for xiaohongshu.com in {source}."
         if details:
             msg += f"\n{details}"
         msg += "\n\nTroubleshooting:\n"
-        msg += "  1. Open a browser and visit https://www.xiaohongshu.com/\n"
-        msg += "  2. Make sure you are logged in\n"
-        msg += "  3. Try: xhs login --cookie-source <browser>"
+        if source == "cookiecloud":
+            msg += "  1. Check COOKIECLOUD_HOST, COOKIECLOUD_UUID, and COOKIECLOUD_PASSWORD\n"
+            msg += "  2. Confirm CookieCloud contains xiaohongshu.com cookies with a valid a1\n"
+            msg += "  3. Try: xhs login --cookie-source cookiecloud"
+        else:
+            msg += "  1. Open a browser and visit https://www.xiaohongshu.com/\n"
+            msg += "  2. Make sure you are logged in\n"
+            msg += "  3. Try: xhs login --cookie-source <browser>"
         super().__init__(msg)

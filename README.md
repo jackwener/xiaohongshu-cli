@@ -150,15 +150,30 @@ xiaohongshu-cli supports multiple authentication methods:
 
 1. **Saved cookies** — loads from `~/.xiaohongshu-cli/cookies.json`
 2. **Browser cookies** — auto-detects installed browsers and extracts cookies (supports Chrome, Arc, Edge, Firefox, Safari, Brave, Chromium, Opera, Vivaldi, and more)
-3. **QR code login** — browser-assisted login with terminal QR output (`xhs login --qrcode`)
+3. **CookieCloud** — pulls cookies from a CookieCloud instance using environment variables only; useful when you keep your browser cookies synced remotely
+4. **QR code login** — browser-assisted login with terminal QR output (`xhs login --qrcode`)
 
-`xhs login` automatically tries all installed browsers and uses the first one with valid cookies.
-Use `--cookie-source <browser>` to specify a browser explicitly, or `--qrcode` for browser-assisted QR login.
-Other authenticated commands automatically retry once with fresh browser cookies when the saved session has expired.
+`xhs login` automatically tries installed browser providers and uses the first one with valid cookies.
+Use `--cookie-source <source>` to specify a provider explicitly, such as a browser name or `cookiecloud`, or use `--qrcode` for browser-assisted QR login.
+Other authenticated commands automatically retry once with fresh cookies from the selected source when the saved session has expired.
+
+CookieCloud uses these environment variables:
+
+```bash
+export COOKIECLOUD_HOST="https://cookiecloud.example.com"
+export COOKIECLOUD_UUID="your-uuid"
+export COOKIECLOUD_PASSWORD="your-password"
+export COOKIECLOUD_TIMEOUT="10"  # optional
+```
+
+```bash
+xhs login --cookie-source cookiecloud
+xhs --cookie-source cookiecloud status
+```
 
 ### Cookie TTL
 
-Saved cookies are valid for **7 days** by default. After that, the client automatically attempts to refresh from the browser. If browser extraction fails, the existing cookies are used with a warning.
+Saved cookies are valid for **7 days** by default. After that, the client automatically attempts to refresh from the browser. If `cookiecloud` is the selected source, stale saved cookies can be refreshed from CookieCloud instead of the browser. If refresh fails, the existing cookies are used with a warning.
 
 ### Short-Index Navigation
 
@@ -287,7 +302,23 @@ uv run ruff check .
 
 1. Open any browser and visit https://www.xiaohongshu.com/
 2. Log in with your account
-3. Run `xhs login` (auto-detects browser) or `xhs login --cookie-source <browser>`
+3. Run `xhs login` (auto-detects browser), `xhs login --cookie-source <browser>`, or `xhs login --cookie-source cookiecloud` if you use CookieCloud
+
+**Q: CookieCloud config is missing**
+
+Set `COOKIECLOUD_HOST`, `COOKIECLOUD_UUID`, and `COOKIECLOUD_PASSWORD`, then retry with `--cookie-source cookiecloud`.
+
+**Q: CookieCloud decryption failed**
+
+Check that the host, UUID, and password match your CookieCloud instance. A wrong password or mismatched UUID will prevent cookie decryption.
+
+**Q: CookieCloud returned no Xiaohongshu cookies**
+
+Confirm that your CookieCloud source contains Xiaohongshu cookies and that they have been synced from a logged-in browser session.
+
+**Q: CookieCloud returned cookies, but XHS still shows guest access**
+
+The fetched cookies may be expired, incomplete, or not tied to a logged-in Xiaohongshu session. Refresh the source, then rerun `xhs --cookie-source cookiecloud status`.
 
 **Q: `NeedVerifyError: Captcha required`**
 
@@ -432,18 +463,37 @@ xiaohongshu-cli 支持多种认证方式：
 
 1. **已保存 Cookie** — 从 `~/.xiaohongshu-cli/cookies.json` 加载
 2. **浏览器 Cookie** — 自动检测已安装浏览器并提取（支持 Chrome、Arc、Edge、Firefox、Safari、Brave、Chromium、Opera、Vivaldi 等）
-3. **二维码扫码登录** — browser-assisted 登录，终端显示二维码，用小红书 App 扫码（`xhs login --qrcode`）
+3. **CookieCloud** — 通过环境变量从 CookieCloud 实例拉取 Cookie，适合把浏览器 Cookie 远程同步管理
+4. **二维码扫码登录** — browser-assisted 登录，终端显示二维码，用小红书 App 扫码（`xhs login --qrcode`）
 
-Cookie 保存后有效期 **7 天**，超时后自动尝试从浏览器刷新。
+Cookie 保存后有效期 **7 天**，超时后自动尝试刷新。若当前选择的是 `cookiecloud`，过期的本地 Cookie 也可以从 CookieCloud 刷新，而不是只依赖浏览器提取。
 
-`xhs login` 会自动尝试所有已安装浏览器，使用第一个有有效 Cookie 的浏览器。也可用 `--cookie-source <browser>` 指定浏览器，或 `--qrcode` 使用 browser-assisted 二维码登录。其他需认证命令在 session 过期时会自动重试一次。
+`xhs login` 会自动尝试已安装的浏览器来源，并使用第一个有有效 Cookie 的来源。也可用 `--cookie-source <source>` 明确指定来源，例如某个浏览器名或 `cookiecloud`，或用 `--qrcode` 使用 browser-assisted 二维码登录。CookieCloud 需要通过环境变量配置：
+
+```bash
+export COOKIECLOUD_HOST="https://cookiecloud.example.com"
+export COOKIECLOUD_UUID="your-uuid"
+export COOKIECLOUD_PASSWORD="your-password"
+export COOKIECLOUD_TIMEOUT="10"  # 可选
+```
+
+```bash
+xhs login --cookie-source cookiecloud
+xhs --cookie-source cookiecloud status
+```
+
+其他需认证命令在 session 过期时会自动重试一次。
 
 ## 常见问题
 
-- `NoCookieError: No 'a1' cookie found` — 请先在任意浏览器打开 https://www.xiaohongshu.com/ 并登录，然后执行 `xhs login`
+- `NoCookieError: No 'a1' cookie found` — 请先在任意浏览器打开 https://www.xiaohongshu.com/ 并登录，然后执行 `xhs login`，或配置 CookieCloud 后使用 `xhs login --cookie-source cookiecloud`
+- `CookieCloud 配置缺失` — 请设置 `COOKIECLOUD_HOST`、`COOKIECLOUD_UUID`、`COOKIECLOUD_PASSWORD` 后重试
+- `CookieCloud 解密失败` — 检查 CookieCloud 地址、UUID 和密码是否与实例一致
+- `CookieCloud 没有小红书 Cookie` — 确认 CookieCloud 中确实同步了已登录的小红书 Cookie
+- `CookieCloud 拉到了 Cookie，但仍然显示游客` — 说明 Cookie 可能已过期、内容不完整，或并非来自已登录的小红书会话；先刷新来源，再执行 `xhs --cookie-source cookiecloud status`
 - `NeedVerifyError` — 触发了验证码，请到浏览器中完成验证后重试
 - `IpBlockedError` — IP 被限制，尝试切换网络（手机热点或 VPN）
-- `SessionExpiredError` — Cookie 过期，执行 `xhs login` 刷新
+- `SessionExpiredError` — Cookie 过期，执行 `xhs login` 刷新；如果使用 CookieCloud，先刷新 CookieCloud 再重试
 - 请求较慢是正常的 — 内置高斯随机延迟（~1-1.5s）是为了模拟人类浏览行为，避免触发风控
 
 ## 作为 AI Agent Skill 使用

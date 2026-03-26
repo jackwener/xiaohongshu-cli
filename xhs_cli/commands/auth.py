@@ -52,7 +52,10 @@ def _print_status_summary(user: dict[str, object]) -> None:
     "--cookie-source",
     type=str,
     default=None,
-    help="Browser to read cookies from (default: auto-detect all installed browsers)",
+    help=(
+        "Cookie provider/source to read cookies from "
+        "(default: auto-detect installed browsers; use 'cookiecloud' explicitly)"
+    ),
 )
 @structured_output_options
 @click.option("--qrcode", "use_qrcode", is_flag=True, default=False,
@@ -94,13 +97,14 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
         )
         return
 
-    # Browser cookie extraction (default)
+    # Cookie provider/source extraction (default)
     if cookie_source is None:
         cookie_source = ctx.obj.get("cookie_source", "auto") if ctx.obj else "auto"
 
-    def _login_with_browser() -> None:
-        browser, cookies = get_cookies(cookie_source, force_refresh=True)
-        print_success(f"Cookies extracted from {browser}")
+    def _login_with_cookie_source() -> None:
+        source_name, cookies = get_cookies(cookie_source, force_refresh=True)
+        if not (as_json or as_yaml):
+            print_success(f"Cookies extracted from {source_name}")
 
         # Verify by fetching user info, retry once if session not yet propagated
         with XhsClient(cookies) as client:
@@ -115,7 +119,7 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
 
         if not _is_valid_login(user):
             raise XhsApiError(
-                "Browser cookies were extracted, but the session appears invalid "
+                f"Cookies were extracted from {source_name}, but the session appears invalid "
                 "(guest or incomplete profile). Try: xhs login --qrcode"
             )
 
@@ -123,7 +127,7 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
             _print_login_success(user)
 
     handle_errors(
-        _login_with_browser,
+        _login_with_cookie_source,
         as_json=as_json,
         as_yaml=as_yaml,
         prefix="Login verification failed",
