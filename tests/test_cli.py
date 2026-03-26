@@ -44,6 +44,9 @@ class TestCliBasic:
         assert "xhs" in result.output
         assert "search" in result.output
         assert "read" in result.output
+        assert "browser-only" not in result.output.lower()
+        assert "cookiecloud" in result.output.lower()
+        assert "installed browsers" in result.output.lower()
 
     def test_search_help(self):
         result = runner.invoke(cli, ["search", "--help"])
@@ -57,10 +60,117 @@ class TestCliBasic:
     def test_login_help(self):
         result = runner.invoke(cli, ["login", "--help"])
         assert result.exit_code == 0
+        assert "browser-only" not in result.output.lower()
+        assert "cookiecloud" in result.output.lower()
+        assert "installed browsers" in result.output.lower()
+
+    def test_help_mentions_cookie_source_as_provider(self):
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "browser-only" not in result.output.lower()
+        assert "cookiecloud" in result.output.lower()
 
     def test_status_help(self):
         result = runner.invoke(cli, ["status", "--help"])
         assert result.exit_code == 0
+
+    def test_status_uses_group_cookie_source_option(self, monkeypatch):
+        monkeypatch.setenv("OUTPUT", "auto")
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.run_client_action",
+            lambda ctx, action: {"nickname": "Alice", "red_id": "alice001"},
+        )
+
+        result = runner.invoke(cli, ["--cookie-source", "cookiecloud", "status", "--yaml"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is True
+        assert payload["data"]["authenticated"] is True
+        assert payload["data"]["user"]["name"] == "Alice"
+
+    def test_login_cookiecloud_yaml_succeeds_through_shared_path(self, monkeypatch):
+        monkeypatch.setenv("OUTPUT", "auto")
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.get_cookies",
+            lambda source, force_refresh=False: ("cookiecloud", {"a1": "x"}),
+        )
+
+        class FakeClient:
+            def __init__(self, cookies):
+                self.cookies = cookies
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def get_self_info(self):
+                return {"nickname": "Alice", "red_id": "alice001"}
+
+        monkeypatch.setattr("xhs_cli.commands.auth.XhsClient", FakeClient)
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.normalize_xhs_user_payload",
+            lambda info: {
+                "guest": False,
+                "nickname": "Alice",
+                "red_id": "alice001",
+                "ip_location": "",
+                "desc": "",
+                "id": "u-1",
+            },
+        )
+
+        result = runner.invoke(cli, ["login", "--cookie-source", "cookiecloud", "--yaml"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is True
+        assert payload["data"]["authenticated"] is True
+        assert payload["data"]["user"]["nickname"] == "Alice"
+
+    def test_login_cookiecloud_invalid_session_message_is_source_aware(self, monkeypatch):
+        monkeypatch.setenv("OUTPUT", "auto")
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.get_cookies",
+            lambda source, force_refresh=False: ("cookiecloud", {"a1": "x"}),
+        )
+        monkeypatch.setattr("xhs_cli.commands.auth.time.sleep", lambda _seconds: None)
+
+        class FakeClient:
+            def __init__(self, cookies):
+                self.cookies = cookies
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def get_self_info(self):
+                return {"nickname": "Unknown", "red_id": ""}
+
+        monkeypatch.setattr("xhs_cli.commands.auth.XhsClient", FakeClient)
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.normalize_xhs_user_payload",
+            lambda info: {
+                "guest": True,
+                "nickname": "Unknown",
+                "red_id": "",
+                "ip_location": "",
+                "desc": "",
+                "id": "",
+            },
+        )
+
+        result = runner.invoke(cli, ["login", "--cookie-source", "cookiecloud", "--yaml"])
+
+        assert result.exit_code != 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is False
+        assert "Browser cookies were extracted" not in payload["error"]["message"]
+        assert "cookiecloud" in payload["error"]["message"]
 
     def test_all_commands_registered(self):
         result = runner.invoke(cli, ["--help"])

@@ -1,15 +1,22 @@
 """Unit tests for cookie management (no network required)."""
 
 
+import base64
+import hashlib
+import json
 import time
 
+import httpx
 import pytest
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad
 
 from xhs_cli.cookies import (
     NOTE_CONTEXT_TTL_SECONDS,
     cache_note_context,
     clear_cookies,
     cookies_to_string,
+    extract_cookiecloud_cookies,
     get_cached_note_context,
     get_cached_xsec_token,
     get_cookies,
@@ -21,6 +28,31 @@ from xhs_cli.cookies import (
     save_cookies,
     save_note_index,
 )
+from xhs_cli.exceptions import NoCookieError, XhsApiError
+
+
+def _evp_bytes_to_key(password: bytes, salt: bytes, key_len: int = 32, iv_len: int = 16) -> tuple[bytes, bytes]:
+    derived = b""
+    block = b""
+    while len(derived) < key_len + iv_len:
+        block = hashlib.md5(block + password + salt).digest()
+        derived += block
+    return derived[:key_len], derived[key_len : key_len + iv_len]
+
+
+def _encrypt_cookiecloud_payload(
+    payload: dict[str, object],
+    *,
+    uuid: str = "uuid-1",
+    password: str = "secret-1",
+    salt: bytes = b"12345678",
+) -> dict[str, str]:
+    passphrase = hashlib.md5(f"{uuid}-{password}".encode()).hexdigest()[:16].encode()
+    key, iv = _evp_bytes_to_key(passphrase, salt)
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    ciphertext = cipher.encrypt(pad(json.dumps(payload).encode(), AES.block_size))
+    encrypted = base64.b64encode(b"Salted__" + salt + ciphertext).decode()
+    return {"encrypted": encrypted}
 
 
 @pytest.fixture
@@ -109,6 +141,253 @@ class TestGetCookies:
         assert browser == "chrome"
         assert cookies == {"a1": "fresh"}
         assert saved == [{"a1": "fresh"}]
+
+    def test_force_refresh_uses_cookiecloud_provider(self, monkeypatch):
+        monkeypatch.setattr("xhs_cli.cookies.load_saved_cookies", lambda: {"a1": "saved"})
+        monkeypatch.setattr(
+            "xhs_cli.cookies.extract_cookiecloud_cookies",
+            lambda: ("cookiecloud", {"a1": "fresh-cookie"}),
+        )
+        saved = []
+        monkeypatch.setattr("xhs_cli.cookies.save_cookies", lambda cookies: saved.append(cookies))
+
+        browser, cookies = get_cookies("cookiecloud", force_refresh=True)
+
+        assert browser == "cookiecloud"
+        assert cookies == {"a1": "fresh-cookie"}
+        assert saved == [{"a1": "fresh-cookie"}]
+
+    def test_stale_saved_cookies_refresh_from_cookiecloud(self, monkeypatch):
+        now = 1_000_000.0
+        monkeypatch.setattr(
+            "xhs_cli.cookies.load_saved_cookies",
+            lambda: {"a1": "stale-cookie", "saved_at": now - (8 * 86400)},
+        )
+        monkeypatch.setattr("xhs_cli.cookies.time.time", lambda: now)
+        monkeypatch.setattr(
+            "xhs_cli.cookies.extract_cookiecloud_cookies",
+            lambda: ("cookiecloud", {"a1": "fresh-cookie"}),
+        )
+        saved = []
+        monkeypatch.setattr("xhs_cli.cookies.save_cookies", lambda cookies: saved.append(cookies))
+
+        browser, cookies = get_cookies("cookiecloud")
+
+        assert browser == "cookiecloud"
+        assert cookies == {"a1": "fresh-cookie"}
+        assert saved == [{"a1": "fresh-cookie"}]
+
+    def test_force_refresh_cookiecloud_raises_when_no_usable_cookies(self, monkeypatch):
+        monkeypatch.setattr("xhs_cli.cookies.extract_cookiecloud_cookies", lambda: None)
+
+        with pytest.raises(NoCookieError):
+            get_cookies("cookiecloud", force_refresh=True)
+
+
+class TestCookieCloudExtraction:
+    def test_cookiecloud_requires_config(self, monkeypatch):
+        monkeypatch.delenv("COOKIECLOUD_HOST", raising=False)
+        monkeypatch.delenv("COOKIECLOUD_UUID", raising=False)
+        monkeypatch.delenv("COOKIECLOUD_PASSWORD", raising=False)
+
+        with pytest.raises(XhsApiError, match="COOKIECLOUD_HOST"):
+            extract_cookiecloud_cookies()
+
+    def test_extract_cookiecloud_cookies_returns_xhs_cookie_dict(self, monkeypatch):
+        monkeypatch.setenv("COOKIECLOUD_HOST", "https://cookiecloud.example.com")
+        monkeypatch.setenv("COOKIECLOUD_UUID", "uuid-1")
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "secret-1")
+        payload = _encrypt_cookiecloud_payload(
+            {
+                "cookie_data": {
+                    ".xiaohongshu.com": [
+                        {"name": "a1", "value": "a1-cookie"},
+                        {"name": "web_session", "value": "session-cookie"},
+                    ],
+                    "xiaohongshu.com": [
+                        {"name": "web_session_sec", "value": "session-sec-cookie"},
+                    ],
+                    ".example.com": [
+                        {"name": "ignore_me", "value": "1"},
+                    ],
+                }
+            }
+        )
+        monkeypatch.setattr("xhs_cli.cookies._fetch_cookiecloud_payload", lambda config: payload)
+
+        result = extract_cookiecloud_cookies()
+
+        assert result == (
+            "cookiecloud",
+            {
+                "a1": "a1-cookie",
+                "web_session": "session-cookie",
+                "web_session_sec": "session-sec-cookie",
+            },
+        )
+
+    def test_extract_cookiecloud_cookies_returns_none_without_xhs_domain(self, monkeypatch):
+        monkeypatch.setenv("COOKIECLOUD_HOST", "https://cookiecloud.example.com")
+        monkeypatch.setenv("COOKIECLOUD_UUID", "uuid-1")
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "secret-1")
+        payload = _encrypt_cookiecloud_payload(
+            {
+                "cookie_data": {
+                    ".example.com": [
+                        {"name": "a1", "value": "other-cookie"},
+                    ]
+                }
+            }
+        )
+        monkeypatch.setattr("xhs_cli.cookies._fetch_cookiecloud_payload", lambda config: payload)
+
+        assert extract_cookiecloud_cookies() is None
+
+    def test_extract_cookiecloud_cookies_returns_none_without_a1(self, monkeypatch):
+        monkeypatch.setenv("COOKIECLOUD_HOST", "https://cookiecloud.example.com")
+        monkeypatch.setenv("COOKIECLOUD_UUID", "uuid-1")
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "secret-1")
+        payload = _encrypt_cookiecloud_payload(
+            {
+                "cookie_data": {
+                    ".xiaohongshu.com": [
+                        {"name": "web_session", "value": "session-cookie"},
+                    ]
+                }
+            }
+        )
+        monkeypatch.setattr("xhs_cli.cookies._fetch_cookiecloud_payload", lambda config: payload)
+
+        assert extract_cookiecloud_cookies() is None
+
+    def test_extract_cookiecloud_cookies_raises_on_decrypt_failure(self, monkeypatch):
+        monkeypatch.setenv("COOKIECLOUD_HOST", "https://cookiecloud.example.com")
+        monkeypatch.setenv("COOKIECLOUD_UUID", "uuid-1")
+        monkeypatch.setenv("COOKIECLOUD_PASSWORD", "secret-1")
+        monkeypatch.setattr(
+            "xhs_cli.cookies._fetch_cookiecloud_payload",
+            lambda config: {"encrypted": "not-valid-base64"},
+        )
+
+        with pytest.raises(XhsApiError, match="decrypt"):
+            extract_cookiecloud_cookies()
+
+
+class TestCookieCloudFetchErrors:
+    def test_fetch_cookiecloud_payload_timeout_raises_actionable_error(self, monkeypatch):
+        def fake_get(url, timeout, follow_redirects):
+            raise httpx.TimeoutException("timeout")
+
+        monkeypatch.setattr("xhs_cli.cookies.httpx.get", fake_get)
+
+        from xhs_cli.cookies import _fetch_cookiecloud_payload
+
+        with pytest.raises(XhsApiError, match="timed out"):
+            _fetch_cookiecloud_payload(
+                {"host": "https://cookiecloud.example.com", "uuid": "uuid-1", "timeout": 10.0}
+            )
+
+    def test_fetch_cookiecloud_payload_http_status_error_raises_actionable_error(self, monkeypatch):
+        request = httpx.Request("GET", "https://cookiecloud.example.com/get/uuid-1")
+        response = httpx.Response(502, request=request)
+
+        def fake_get(url, timeout, follow_redirects):
+            return response
+
+        monkeypatch.setattr("xhs_cli.cookies.httpx.get", fake_get)
+
+        from xhs_cli.cookies import _fetch_cookiecloud_payload
+
+        with pytest.raises(XhsApiError, match="HTTP 502"):
+            _fetch_cookiecloud_payload(
+                {"host": "https://cookiecloud.example.com", "uuid": "uuid-1", "timeout": 10.0}
+            )
+
+    def test_fetch_cookiecloud_payload_http_error_raises_actionable_error(self, monkeypatch):
+        def fake_get(url, timeout, follow_redirects):
+            raise httpx.HTTPError("network down")
+
+        monkeypatch.setattr("xhs_cli.cookies.httpx.get", fake_get)
+
+        from xhs_cli.cookies import _fetch_cookiecloud_payload
+
+        with pytest.raises(XhsApiError, match="request failed"):
+            _fetch_cookiecloud_payload(
+                {"host": "https://cookiecloud.example.com", "uuid": "uuid-1", "timeout": 10.0}
+            )
+
+    def test_fetch_cookiecloud_payload_invalid_json_raises_actionable_error(self, monkeypatch):
+        request = httpx.Request("GET", "https://cookiecloud.example.com/get/uuid-1")
+        response = httpx.Response(200, request=request, content=b"not-json")
+
+        def fake_get(url, timeout, follow_redirects):
+            return response
+
+        monkeypatch.setattr("xhs_cli.cookies.httpx.get", fake_get)
+
+        from xhs_cli.cookies import _fetch_cookiecloud_payload
+
+        with pytest.raises(XhsApiError, match="invalid JSON"):
+            _fetch_cookiecloud_payload(
+                {"host": "https://cookiecloud.example.com", "uuid": "uuid-1", "timeout": 10.0}
+            )
+
+    def test_fetch_cookiecloud_payload_invalid_shape_raises_actionable_error(self, monkeypatch):
+        request = httpx.Request("GET", "https://cookiecloud.example.com/get/uuid-1")
+        response = httpx.Response(200, request=request, json=["not", "a", "dict"])
+
+        def fake_get(url, timeout, follow_redirects):
+            return response
+
+        monkeypatch.setattr("xhs_cli.cookies.httpx.get", fake_get)
+
+        from xhs_cli.cookies import _fetch_cookiecloud_payload
+
+        with pytest.raises(XhsApiError, match="invalid response payload"):
+            _fetch_cookiecloud_payload(
+                {"host": "https://cookiecloud.example.com", "uuid": "uuid-1", "timeout": 10.0}
+            )
+
+    def test_fetch_cookiecloud_payload_missing_encrypted_field_raises_actionable_error(self, monkeypatch):
+        request = httpx.Request("GET", "https://cookiecloud.example.com/get/uuid-1")
+        response = httpx.Response(200, request=request, json={"cookie_data": {}})
+
+        def fake_get(url, timeout, follow_redirects):
+            return response
+
+        monkeypatch.setattr("xhs_cli.cookies.httpx.get", fake_get)
+
+        from xhs_cli.cookies import _fetch_cookiecloud_payload
+
+        with pytest.raises(XhsApiError, match="encrypted payload"):
+            _fetch_cookiecloud_payload(
+                {"host": "https://cookiecloud.example.com", "uuid": "uuid-1", "timeout": 10.0}
+            )
+
+
+class TestNoCookieError:
+    def test_cookiecloud_message_is_actionable(self):
+        message = str(NoCookieError("cookiecloud"))
+
+        assert "CookieCloud" in message
+        assert "COOKIECLOUD_HOST" in message
+        assert "COOKIECLOUD_UUID" in message
+        assert "COOKIECLOUD_PASSWORD" in message
+        assert "xhs login --cookie-source cookiecloud" in message
+
+    def test_named_browser_message_keeps_browser_guidance(self):
+        message = str(NoCookieError("chrome"))
+
+        assert "in chrome" in message
+        assert "Open a browser" in message
+        assert "xhs login --cookie-source <browser>" in message
+
+    def test_auto_message_keeps_browser_autodetect_guidance(self):
+        message = str(NoCookieError("auto"))
+
+        assert "in any installed browser" in message
+        assert "Open a browser" in message
+        assert "xhs login --cookie-source <browser>" in message
 
 
 class TestNoteContextCache:

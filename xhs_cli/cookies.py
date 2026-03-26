@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import functools
+import hashlib
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
@@ -13,6 +16,10 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+import httpx
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+
 from .constants import CONFIG_DIR_NAME, COOKIE_FILE, INDEX_CACHE_FILE, TOKEN_CACHE_FILE
 
 logger = logging.getLogger(__name__)
@@ -20,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Cookie TTL: warn and attempt browser refresh after 7 days
 COOKIE_TTL_DAYS = 7
 _COOKIE_TTL_SECONDS = COOKIE_TTL_DAYS * 86400
+COOKIECLOUD_TIMEOUT_SECONDS = 10.0
 _TOKEN_CACHE_LOCK = threading.RLock()
 _TOKEN_CACHE_MEMORY: OrderedDict[str, dict[str, Any]] | None = None
 _TOKEN_CACHE_PATH: Path | None = None
@@ -316,6 +324,173 @@ def get_cached_xsec_token(note_id: str) -> str:
     return get_cached_note_context(note_id).get("token", "")
 
 
+def _load_cookiecloud_config() -> dict[str, str | float]:
+    from .exceptions import XhsApiError
+
+    host = os.getenv("COOKIECLOUD_HOST", "").strip().rstrip("/")
+    uuid = os.getenv("COOKIECLOUD_UUID", "").strip()
+    password = os.getenv("COOKIECLOUD_PASSWORD", "").strip()
+
+    missing = [
+        name
+        for name, value in (
+            ("COOKIECLOUD_HOST", host),
+            ("COOKIECLOUD_UUID", uuid),
+            ("COOKIECLOUD_PASSWORD", password),
+        )
+        if not value
+    ]
+    if missing:
+        raise XhsApiError(
+            "CookieCloud requires environment variables: "
+            f"{', '.join(missing)}. Try: xhs login --cookie-source cookiecloud"
+        )
+
+    timeout = COOKIECLOUD_TIMEOUT_SECONDS
+    timeout_raw = os.getenv("COOKIECLOUD_TIMEOUT", "").strip()
+    if timeout_raw:
+        try:
+            timeout = float(timeout_raw)
+        except ValueError as exc:
+            raise XhsApiError("COOKIECLOUD_TIMEOUT must be a positive number of seconds.") from exc
+        if timeout <= 0:
+            raise XhsApiError("COOKIECLOUD_TIMEOUT must be a positive number of seconds.")
+
+    return {
+        "host": host,
+        "uuid": uuid,
+        "password": password,
+        "timeout": timeout,
+    }
+
+
+def _fetch_cookiecloud_payload(config: dict[str, str | float]) -> dict[str, Any]:
+    from .exceptions import XhsApiError
+
+    url = f"{config['host']}/get/{config['uuid']}"
+    try:
+        response = httpx.get(url, timeout=float(config["timeout"]), follow_redirects=True)
+        response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise XhsApiError("CookieCloud request timed out. Check COOKIECLOUD_HOST and try again.") from exc
+    except httpx.HTTPStatusError as exc:
+        raise XhsApiError(
+            f"CookieCloud request failed with HTTP {exc.response.status_code}. "
+            "Check COOKIECLOUD_HOST and try again."
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise XhsApiError("CookieCloud request failed. Check COOKIECLOUD_HOST and try again.") from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise XhsApiError("CookieCloud returned invalid JSON.") from exc
+
+    if not isinstance(payload, dict):
+        raise XhsApiError("CookieCloud returned an invalid response payload.")
+
+    encrypted = payload.get("encrypted")
+    if not isinstance(encrypted, str) or not encrypted.strip():
+        raise XhsApiError("CookieCloud response did not include an encrypted payload.")
+
+    return payload
+
+
+def _evp_bytes_to_key(password: bytes, salt: bytes, *, key_len: int = 32, iv_len: int = 16) -> tuple[bytes, bytes]:
+    derived = b""
+    block = b""
+    while len(derived) < key_len + iv_len:
+        block = hashlib.md5(block + password + salt).digest()
+        derived += block
+    return derived[:key_len], derived[key_len : key_len + iv_len]
+
+
+def _cookiecloud_passphrases(uuid: str, password: str) -> tuple[str, ...]:
+    candidates = [
+        hashlib.md5(f"{uuid}-{password}".encode()).hexdigest()[:16],
+        hashlib.md5(f"{uuid}{password}".encode()).hexdigest()[:16],
+    ]
+
+    unique: list[str] = []
+    for candidate in candidates:
+        if candidate not in unique:
+            unique.append(candidate)
+    return tuple(unique)
+
+
+def _decrypt_cookiecloud_payload(payload: dict[str, Any], uuid: str, password: str) -> dict[str, Any]:
+    from .exceptions import XhsApiError
+
+    encrypted = payload.get("encrypted")
+    if not isinstance(encrypted, str) or not encrypted.strip():
+        raise XhsApiError("CookieCloud response did not include an encrypted payload.")
+
+    for passphrase in _cookiecloud_passphrases(uuid, password):
+        try:
+            raw_encrypted = base64.b64decode(encrypted, validate=True)
+            if (
+                len(raw_encrypted) <= 16
+                or len(raw_encrypted) % AES.block_size != 0
+                or raw_encrypted[:8] != b"Salted__"
+            ):
+                continue
+
+            salt = raw_encrypted[8:16]
+            ciphertext = raw_encrypted[16:]
+            key, iv = _evp_bytes_to_key(passphrase.encode(), salt)
+            cipher = AES.new(key, AES.MODE_CBC, iv)
+            decrypted = unpad(cipher.decrypt(ciphertext), AES.block_size)
+            parsed = json.loads(decrypted.decode())
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+
+        if isinstance(parsed, dict):
+            return parsed
+
+    raise XhsApiError(
+        "Failed to decrypt CookieCloud payload. Check COOKIECLOUD_UUID and COOKIECLOUD_PASSWORD."
+    )
+
+
+def _extract_xhs_cookiecloud_cookies(payload: dict[str, Any]) -> dict[str, str] | None:
+    from .exceptions import XhsApiError
+
+    cookie_data = payload.get("cookie_data", payload)
+    if not isinstance(cookie_data, dict):
+        raise XhsApiError("CookieCloud payload did not include a valid cookie_data object.")
+
+    cookies: dict[str, str] = {}
+    for domain in ("xiaohongshu.com", ".xiaohongshu.com"):
+        entries = cookie_data.get(domain, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name", "")).strip()
+            value = str(entry.get("value", "")).strip()
+            if name and value:
+                cookies[name] = value
+
+    if not cookies.get("a1"):
+        return None
+    return cookies
+
+
+def extract_cookiecloud_cookies() -> tuple[str, dict[str, str]] | None:
+    """Fetch, decrypt, and normalize CookieCloud cookies for xiaohongshu.com."""
+    config = _load_cookiecloud_config()
+    payload = _fetch_cookiecloud_payload(config)
+    decrypted = _decrypt_cookiecloud_payload(payload, str(config["uuid"]), str(config["password"]))
+    cookies = _extract_xhs_cookiecloud_cookies(decrypted)
+    if not cookies:
+        logger.debug("No usable Xiaohongshu cookies found in CookieCloud payload")
+        return None
+
+    logger.debug("Loaded XHS cookies from CookieCloud")
+    return "cookiecloud", cookies
+
+
 @functools.lru_cache(maxsize=1)
 def _available_browsers() -> tuple[str, ...]:
     """List all browser names supported by browser_cookie3 (cached)."""
@@ -484,23 +659,30 @@ def get_cookies(
     """
     Multi-strategy cookie acquisition with TTL-based auto-refresh.
 
-    Returns ``(browser_name, cookies)``.
+    Returns ``(source_name, cookies)``.
 
     1. Load saved cookies (skip if stale > 7 days)
-    2. Extract from browser (auto-detect if *cookie_source* is ``"auto"``)
+    2. Extract from the selected cookie source
     3. Raise error if all fail
     """
+    def _extract_selected_cookies() -> tuple[str, dict[str, str]] | None:
+        if cookie_source == "cookiecloud":
+            return extract_cookiecloud_cookies()
+        return extract_browser_cookies(cookie_source)
+
     # 1. Try saved cookies first
     if not force_refresh:
         saved = load_saved_cookies()
         if saved:
+            saved = dict(saved)
             saved_at = saved.pop("saved_at", 0)
             if saved_at and (time.time() - float(saved_at)) > _COOKIE_TTL_SECONDS:
                 logger.info(
-                    "Cookies older than %d days, attempting browser refresh",
+                    "Cookies older than %d days, attempting refresh from %s",
                     COOKIE_TTL_DAYS,
+                    cookie_source,
                 )
-                result = extract_browser_cookies(cookie_source)
+                result = _extract_selected_cookies()
                 if result:
                     save_cookies(result[1])
                     return result
@@ -513,7 +695,7 @@ def get_cookies(
     # 2. Try browser extraction
     from .exceptions import NoCookieError
 
-    result = extract_browser_cookies(cookie_source)
+    result = _extract_selected_cookies()
     if result:
         save_cookies(result[1])
         return result

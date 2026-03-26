@@ -54,7 +54,7 @@ _fix_windows_encoding()
     type=str,
     default="auto",
     show_default=True,
-    help="Browser to read cookies from (auto = try all installed browsers)",
+    help="Cookie provider/source to read cookies from (auto = try installed browsers; use 'cookiecloud' explicitly)",
 )
 @click.pass_context
 def cli(ctx, verbose: bool, cookie_source: str):
