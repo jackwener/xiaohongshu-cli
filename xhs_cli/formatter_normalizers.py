@@ -19,7 +19,7 @@ def _coerce_int(value: Any, default: int = 0) -> int:
 
 
 def normalize_user_info(data: dict[str, Any]) -> dict[str, Any]:
-    basic = data.get("basic_info", data)
+    basic = data.get("basic_info", data.get("basicInfo", data))
     interactions = data.get("interactions", [])
 
     stats = {}
@@ -28,10 +28,13 @@ def normalize_user_info(data: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "nickname": basic.get("nickname", basic.get("nick_name", "Unknown")),
-        "red_id": basic.get("red_id", ""),
+        "red_id": basic.get("red_id", basic.get("redId", "")),
         "desc": basic.get("desc", ""),
-        "ip_location": basic.get("ip_location", ""),
-        "user_id": basic.get("user_id", data.get("user_id", "")),
+        "ip_location": basic.get("ip_location", basic.get("ipLocation", "")),
+        "user_id": basic.get(
+            "user_id",
+            basic.get("userId", data.get("user_id", data.get("userId", ""))),
+        ),
         "gender": basic.get("gender"),
         "stats": stats,
     }

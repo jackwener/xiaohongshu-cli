@@ -12,6 +12,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from .constants import CREATOR_HOST, HOME_URL, UPLOAD_HOST, USER_AGENT
 from .cookies import (
@@ -22,7 +23,7 @@ from .cookies import (
     invalidate_note_context,
 )
 from .exceptions import NeedVerifyError, UnsupportedOperationError, XhsApiError
-from .html_parser import extract_note_from_html
+from .html_parser import extract_note_from_html, extract_user_from_html
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,27 @@ class ReadingEndpointsMixin:
         )
         return resp.text
 
+    def _fetch_user_html(
+        self,
+        user_id: str,
+        xsec_token: str = "",
+        xsec_source: str = "",
+    ) -> str:
+        url = f"{HOME_URL}/user/profile/{user_id}"
+        if xsec_token and xsec_source:
+            url = f"{url}?{urlencode({'xsec_token': xsec_token, 'xsec_source': xsec_source})}"
+
+        resp = self._request_with_retry(
+            "GET",
+            url,
+            headers={
+                "user-agent": USER_AGENT,
+                "referer": f"{HOME_URL}/",
+                "cookie": cookies_to_string(self.cookies),
+            },
+        )
+        return resp.text
+
     def resolve_xsec_context(
         self,
         note_id: str,
@@ -258,10 +280,14 @@ class ReadingEndpointsMixin:
     def get_self_info(self) -> dict[str, Any]:
         return self._main_api_get("/api/sns/web/v2/user/me")
 
-    def get_user_info(self, user_id: str) -> dict[str, Any]:
-        return self._main_api_get("/api/sns/web/v1/user/otherinfo", {
-            "target_user_id": user_id,
-        })
+    def get_user_info(
+        self,
+        user_id: str,
+        xsec_token: str = "",
+        xsec_source: str = "",
+    ) -> dict[str, Any]:
+        html = self._fetch_user_html(user_id, xsec_token=xsec_token, xsec_source=xsec_source)
+        return extract_user_from_html(html)
 
     def get_user_notes(self, user_id: str, cursor: str = "") -> dict[str, Any]:
         return self._main_api_get("/api/sns/web/v1/user_posted", {

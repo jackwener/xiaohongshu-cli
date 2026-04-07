@@ -89,7 +89,8 @@ xhs comments "<url>" --all --json      # All comments as JSON
 xhs comments <note_id> --xsec-token T  # Use note_id + explicit xsec_token
 xhs comments <note_id>                 # Reuse cached token if available
 xhs sub-comments <note_id> <cmt_id>   # View replies to a comment
-xhs user <user_id>                     # User profile
+xhs user <user_id_or_url>              # User profile; profile URL may include xsec_token/xsec_source
+xhs user <user_id> --xsec-token T --xsec-source pc_search  # User profile with explicit xsec context
 xhs user-posts <user_id>              # User's published notes
 xhs user-posts <user_id> --cursor X   # Paginate with cursor
 
@@ -382,7 +383,8 @@ xhs comments "<url>" --all --json      # 全部评论，JSON 格式
 xhs comments <note_id> --xsec-token T  # 用 note_id + 显式 xsec_token
 xhs comments <note_id>                 # 如果之前访问过 URL，会复用缓存 token
 xhs sub-comments <note_id> <cmt_id>   # 查看评论的回复
-xhs user <user_id>                     # 用户主页
+xhs user <user_id_or_url>              # 用户主页；主页 URL 可携带 xsec_token/xsec_source
+xhs user <user_id> --xsec-token T --xsec-source pc_search  # 显式传 xsec 上下文
 xhs user-posts <user_id>              # 用户发布的笔记
 
 # 发现

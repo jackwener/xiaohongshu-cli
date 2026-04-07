@@ -69,6 +69,44 @@ class TestCreatorEndpoints:
             client.close()
 
 
+class TestUserProfileEndpoint:
+    def test_get_user_info_fetches_profile_html_with_xsec_context(self, monkeypatch):
+        captured = {}
+        html = (
+            '<script>window.__INITIAL_STATE__={"user":{"userPageData":{'
+            '"basicInfo":{"nickname":"Alice","redId":"alice001","userId":"user-1","ipLocation":"Shanghai","gender":1},'
+            '"interactions":[{"type":"fans","count":"123"}],'
+            '"tags":[]'
+            "}}}</script>"
+        )
+
+        def fake_request(self, method, url, **kwargs):
+            captured["method"] = method
+            captured["url"] = url
+            captured["headers"] = kwargs.get("headers", {})
+            return httpx.Response(200, text=html)
+
+        monkeypatch.setattr(XhsClient, "_request_with_retry", fake_request)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_user_info(
+                "user-1",
+                xsec_token="token-abc",
+                xsec_source="pc_search",
+            )
+        finally:
+            client.close()
+
+        assert captured["method"] == "GET"
+        assert captured["url"] == (
+            "https://www.xiaohongshu.com/user/profile/user-1"
+            "?xsec_token=token-abc&xsec_source=pc_search"
+        )
+        assert "a1=cookie" in captured["headers"]["cookie"]
+        assert result["basicInfo"]["nickname"] == "Alice"
+
+
 class TestTransportCookies:
     def test_request_with_retry_merges_response_cookies(self, monkeypatch):
         request = httpx.Request("POST", "https://edith.xiaohongshu.com/api/test")

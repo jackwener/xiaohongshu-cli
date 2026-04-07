@@ -351,6 +351,37 @@ class TestCliBasic:
 
         assert saved == [[]]
 
+    def test_user_profile_url_passes_xsec_context(self, monkeypatch):
+        called = {}
+
+        class FakeClient:
+            def get_user_info(self, user_id, xsec_token="", xsec_source=""):
+                called["user_id"] = user_id
+                called["xsec_token"] = xsec_token
+                called["xsec_source"] = xsec_source
+                return {}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            action(FakeClient())
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.reading.handle_command", fake_handle_command)
+
+        result = runner.invoke(
+            cli,
+            [
+                "user",
+                "https://www.xiaohongshu.com/user/profile/user-1?xsec_token=token-abc&xsec_source=pc_search",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert called == {
+            "user_id": "user-1",
+            "xsec_token": "token-abc",
+            "xsec_source": "pc_search",
+        }
+
     def test_user_posts_saves_index_entries(self, monkeypatch):
         saved = []
         monkeypatch.setattr("xhs_cli.note_refs.save_note_index", lambda items: saved.append(items))

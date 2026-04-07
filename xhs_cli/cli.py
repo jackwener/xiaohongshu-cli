@@ -5,7 +5,7 @@ Usage:
     xhs search <keyword> [--sort popular|latest] [--type video|image] [--page N]
     xhs read <id_or_url> [--xsec-token TOKEN]
     xhs comments <id_or_url>
-    xhs user <user_id>
+    xhs user <user_id_or_url> [--xsec-token TOKEN] [--xsec-source SOURCE]
     xhs user-posts <user_id> [--cursor CURSOR]
     xhs feed
     xhs hot [--category CATEGORY]

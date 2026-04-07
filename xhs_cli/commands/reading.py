@@ -6,6 +6,7 @@ from ..command_normalizers import normalize_paged_notes
 from ..cookies import cache_note_context
 from ..formatter import (
     maybe_print_structured,
+    parse_user_reference,
     print_info,
     render_comments,
     render_feed,
@@ -149,13 +150,20 @@ def comments(ctx, id_or_url: str, cursor: str, xsec_token: str, fetch_all: bool,
 
 @click.command()
 @click.argument("user_id")
+@click.option("--xsec-token", default="", help="Security token from a profile URL")
+@click.option("--xsec-source", default="", help="Security source from a profile URL")
 @structured_output_options
 @click.pass_context
-def user(ctx, user_id: str, as_json: bool, as_yaml: bool):
+def user(ctx, user_id: str, xsec_token: str, xsec_source: str, as_json: bool, as_yaml: bool):
     """View user profile info."""
+    parsed_user_id, url_token, url_source = parse_user_reference(user_id)
     handle_command(
         ctx,
-        action=lambda client: client.get_user_info(user_id),
+        action=lambda client: client.get_user_info(
+            parsed_user_id,
+            xsec_token=xsec_token or url_token,
+            xsec_source=xsec_source or url_source,
+        ),
         render=render_user_info,
         as_json=as_json,
         as_yaml=as_yaml,

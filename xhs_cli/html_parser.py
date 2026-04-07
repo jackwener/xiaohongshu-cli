@@ -71,3 +71,18 @@ def extract_note_from_html(html: str, note_id: str) -> dict[str, Any]:
     """High-level: parse HTML → extract note in one step."""
     state = parse_initial_state(html)
     return extract_note_from_state(state, note_id)
+
+
+def extract_user_from_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Extract profile data from a parsed XHS user homepage state."""
+    user_page_data = state.get("user", {}).get("userPageData")
+    if isinstance(user_page_data, dict):
+        return user_page_data
+
+    raise XhsApiError("User profile not found in HTML state")
+
+
+def extract_user_from_html(html: str) -> dict[str, Any]:
+    """High-level: parse HTML → extract user profile in one step."""
+    state = parse_initial_state(html)
+    return extract_user_from_state(state)
