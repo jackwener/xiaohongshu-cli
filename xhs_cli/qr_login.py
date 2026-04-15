@@ -401,17 +401,33 @@ def _browser_assisted_qrcode_login(
             _emit_status(on_status, f"QR URL: {qr_url}")
         _emit_status(on_status, "\n⏳ Waiting for QR code scan...")
 
-        try:
-            with page.expect_response(
-                lambda response: QR_STATUS_ENDPOINT in response.url and response.request.method == "GET",
-                timeout=timeout_s * 1000,
-            ) as completion_info:
-                pass
-        except Exception as exc:
-            raise XhsApiError("QR code login timed out while waiting for browser completion.") from exc
+        deadline = time.monotonic() + timeout_s
+        completion_data: dict[str, Any] = {}
 
-        _raise_for_browser_response(completion_info.value)
-        completion_data = _browser_response_payload(completion_info.value)
+        while True:
+            remaining_ms = int((deadline - time.monotonic()) * 1000)
+            if remaining_ms <= 0:
+                raise XhsApiError("QR code login timed out while waiting for browser completion.")
+
+            try:
+                with page.expect_response(
+                    lambda response: QR_STATUS_ENDPOINT in response.url and response.request.method == "GET",
+                    timeout=remaining_ms,
+                ) as completion_info:
+                    pass
+            except Exception as exc:
+                raise XhsApiError("QR code login timed out while waiting for browser completion.") from exc
+
+            resp = completion_info.value
+            resp_status = getattr(resp, "status", None)
+
+            if resp_status in (461, 471):
+                _emit_status(on_status, "🔒 Captcha detected — please solve it in the browser window...")
+                continue
+
+            _raise_for_browser_response(resp)
+            completion_data = _browser_response_payload(resp)
+            break
         login_info = completion_data.get("login_info", {})
         if not isinstance(login_info, dict):
             login_info = {}
@@ -464,6 +480,8 @@ def _http_qrcode_login(
                 "Initial activate: session=%s user_id=%s",
                 guest_session, activate_data.get("user_id"),
             )
+        except NeedVerifyError:
+            raise
         except Exception as exc:
             logger.debug("Initial activate failed (non-fatal): %s", exc)
 
@@ -489,6 +507,8 @@ def _http_qrcode_login(
 
             try:
                 status_data = client.check_qr_status(qr_id, code)
+            except NeedVerifyError:
+                raise
             except Exception as exc:
                 logger.debug("QR status check error: %s", exc)
                 consecutive_errors += 1
@@ -539,10 +559,19 @@ def qrcode_login(
     prefer_browser_assisted: bool = False,
 ) -> dict[str, str]:
     """Run the QR code login flow."""
+    browser_unavailable = False
+
     if prefer_browser_assisted:
         try:
             return _browser_assisted_qrcode_login(on_status=on_status, timeout_s=timeout_s)
         except BrowserQrLoginUnavailable as exc:
             logger.info("Browser-assisted QR login unavailable, falling back to HTTP flow: %s", exc)
+            browser_unavailable = True
 
-    return _http_qrcode_login(on_status=on_status, timeout_s=timeout_s)
+    try:
+        return _http_qrcode_login(on_status=on_status, timeout_s=timeout_s)
+    except NeedVerifyError as verify_err:
+        if browser_unavailable:
+            raise
+        _emit_status(on_status, "🔒 Captcha triggered — switching to browser-assisted login to handle it...")
+        return _browser_assisted_qrcode_login(on_status=on_status, timeout_s=timeout_s)
