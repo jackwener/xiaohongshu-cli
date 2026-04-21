@@ -54,10 +54,24 @@ TYPE_MAP = {
 @click.argument("keyword")
 @click.option("--sort", type=click.Choice(["general", "popular", "latest"]), default="general", help="Sort order")
 @click.option("--type", "note_type", type=click.Choice(["all", "video", "image"]), default="all", help="Note type")
+@click.option("--time", "note_time", default="不限", show_default=True, help="Search time filter tag")
+@click.option("--range", "note_range", default="不限", show_default=True, help="Search range filter tag")
+@click.option("--distance", default="不限", show_default=True, help="Search distance filter tag")
 @click.option("--page", default=1, help="Page number")
 @structured_output_options
 @click.pass_context
-def search(ctx, keyword: str, sort: str, note_type: str, page: int, as_json: bool, as_yaml: bool):
+def search(
+    ctx,
+    keyword: str,
+    sort: str,
+    note_type: str,
+    note_time: str,
+    note_range: str,
+    distance: str,
+    page: int,
+    as_json: bool,
+    as_yaml: bool,
+):
     """Search notes by keyword."""
     def _search_action(client):
         result = client.search_notes(
@@ -65,6 +79,11 @@ def search(ctx, keyword: str, sort: str, note_type: str, page: int, as_json: boo
             page=page,
             sort=SORT_MAP[sort],
             note_type=TYPE_MAP[note_type],
+            filter_overrides={
+                "filter_note_time": note_time,
+                "filter_note_range": note_range,
+                "filter_pos_distance": distance,
+            },
         )
         _cache_tokens_from_items(result, xsec_source="pc_search")
         save_index_from_items(result, xsec_source="pc_search")

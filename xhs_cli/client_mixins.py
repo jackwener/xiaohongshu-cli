@@ -191,6 +191,21 @@ def get_search_session_stats() -> dict[str, Any]:
         }
 
 
+def _build_search_filters(filter_overrides: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    filters = [
+        {"tags": list(item["tags"]), "type": item["type"]}
+        for item in _SEARCH_DEFAULT_FILTERS
+    ]
+    if not filter_overrides:
+        return filters
+
+    for item in filters:
+        filter_value = filter_overrides.get(item["type"], "").strip()
+        if filter_value:
+            item["tags"] = [filter_value]
+    return filters
+
+
 class ReadingEndpointsMixin:
     """Read-only note, profile, and discovery endpoints."""
 
@@ -278,6 +293,7 @@ class ReadingEndpointsMixin:
         page_size: int = 20,
         sort: str = "general",
         note_type: int = 0,
+        filter_overrides: dict[str, str] | None = None,
     ) -> Any:
         search_id, is_new_session = _acquire_search_session(keyword, sort, note_type)
         if is_new_session:
@@ -304,7 +320,7 @@ class ReadingEndpointsMixin:
             "sort": sort,
             "note_type": note_type,
             "ext_flags": [],
-            "filters": _SEARCH_DEFAULT_FILTERS,
+            "filters": _build_search_filters(filter_overrides),
             "geo": "",
             "image_formats": ["jpg", "webp", "avif"],
         })

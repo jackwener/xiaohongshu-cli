@@ -2,7 +2,7 @@
 
 Usage:
     xhs login / status / logout
-    xhs search <keyword> [--sort popular|latest] [--type video|image] [--page N]
+    xhs search <keyword> [--sort popular|latest] [--type video|image] [--time TAG] [--range TAG] [--distance TAG] [--page N]
     xhs read <id_or_url> [--xsec-token TOKEN]
     xhs comments <id_or_url>
     xhs user <user_id>

@@ -236,6 +236,27 @@ class TestCliBasic:
         assert "search_result/69ad061d" in result.output
         assert "very-long-token-value" not in result.output
 
+    def test_search_accepts_distance_filter_argument(self, monkeypatch):
+        captured = {}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            class FakeClient:
+                def search_notes(self, **kwargs):
+                    captured.update(kwargs)
+                    return {"items": [], "has_more": False}
+
+            action(FakeClient())
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.reading.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, ["search", "旅行", "--sort", "popular", "--distance", "附近"])
+
+        assert result.exit_code == 0
+        assert captured["keyword"] == "旅行"
+        assert captured["sort"] == "popularity_descending"
+        assert captured["filter_overrides"]["filter_pos_distance"] == "附近"
+
     def test_feed_rich_output_shortens_visible_links(self, monkeypatch):
         monkeypatch.setenv("OUTPUT", "rich")
         monkeypatch.setattr(

@@ -163,6 +163,44 @@ class TestReadingEndpointBehavior:
         assert notes_payload["filters"][0]["type"] == "sort_type"
         assert notes_payload["filters"][1]["type"] == "filter_note_type"
 
+    def test_search_notes_applies_filter_overrides(self, monkeypatch):
+        calls = []
+
+        monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE", OrderedDict())
+        monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_LOADED", True)
+
+        def fake_get(self, uri, params=None):
+            calls.append(("GET", uri, params))
+            return {"ok": True}
+
+        def fake_post(self, uri, data, header_overrides=None):
+            calls.append(("POST", uri, data))
+            if uri == "/api/sns/web/v1/search/notes":
+                return {"items": [], "has_more": False}
+            return {"ok": True}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+        monkeypatch.setattr(XhsClient, "_main_api_post", fake_post)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            client.search_notes(
+                "旅行",
+                filter_overrides={
+                    "filter_note_time": "一周内",
+                    "filter_note_range": "图文",
+                    "filter_pos_distance": "附近",
+                },
+            )
+        finally:
+            client.close()
+
+        notes_payload = next(call[2] for call in calls if call[1] == "/api/sns/web/v1/search/notes")
+        filters_by_type = {item["type"]: item["tags"] for item in notes_payload["filters"]}
+        assert filters_by_type["filter_note_time"] == ["一周内"]
+        assert filters_by_type["filter_note_range"] == ["图文"]
+        assert filters_by_type["filter_pos_distance"] == ["附近"]
+
     def test_search_notes_reuses_search_id_across_pages(self, monkeypatch):
         calls = []
 
