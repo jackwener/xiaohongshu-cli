@@ -21,7 +21,7 @@ from .cookies import (
     get_config_dir,
     invalidate_note_context,
 )
-from .exceptions import NeedVerifyError, UnsupportedOperationError, XhsApiError
+from .exceptions import NeedVerifyError, SignatureError, UnsupportedOperationError, XhsApiError
 from .html_parser import extract_note_from_html
 
 logger = logging.getLogger(__name__)
@@ -638,11 +638,132 @@ class SocialEndpointsMixin:
         return self._main_api_post("/api/sns/web/v1/user/unfollow", {"target_user_id": user_id})
 
     def get_user_favorites(self, user_id: str, cursor: str = "") -> dict[str, Any]:
-        return self._main_api_get("/api/sns/web/v2/note/collect/page", {
-            "user_id": user_id,
-            "cursor": cursor,
+        params = {
             "num": 30,
-        })
+            "cursor": cursor,
+            "user_id": user_id,
+            "image_formats": "jpg,webp,avif",
+            "xsec_token": "",
+            "xsec_source": "",
+        }
+        try:
+            return self._main_api_get("/api/sns/web/v2/note/collect/page", params)
+        except XhsApiError as exc:
+            if not isinstance(exc, SignatureError) and exc.code not in {-1, "-1", 300015, "300015"}:
+                raise
+            logger.debug("Signed favorites API failed; falling back to browser request")
+            return self._get_user_favorites_with_browser(user_id, cursor=cursor)
+
+    def _get_user_favorites_with_browser(self, user_id: str, cursor: str = "") -> dict[str, Any]:
+        try:
+            from camoufox.sync_api import Camoufox
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        except ImportError as exc:
+            raise UnsupportedOperationError(
+                "Favorites API requires the current web signing algorithm. "
+                "Install Camoufox/Playwright or update xiaohongshu-cli/xhshow to use the browser fallback."
+            ) from exc
+
+        from urllib.parse import parse_qs, urlparse
+
+        from .qr_login import BrowserQrLoginUnavailable, _ensure_camoufox_ready
+
+        target_path = "/api/sns/web/v2/note/collect/page"
+        responses: dict[str, dict[str, Any]] = {}
+        errors: list[dict[str, Any]] = []
+
+        def _response_cursor(url: str) -> str:
+            return parse_qs(urlparse(url).query, keep_blank_values=True).get("cursor", [""])[0]
+
+        try:
+            _ensure_camoufox_ready()
+        except BrowserQrLoginUnavailable as exc:
+            raise UnsupportedOperationError(str(exc)) from exc
+
+        try:
+            browser_context = Camoufox(headless=True)
+        except Exception as exc:
+            raise UnsupportedOperationError(
+                "Favorites browser fallback could not start Camoufox. "
+                "Run `python -m camoufox fetch` first."
+            ) from exc
+
+        try:
+            with browser_context as browser:
+                try:
+                    context = browser.new_context(user_agent=USER_AGENT, locale="zh-CN")
+                    context.add_cookies([
+                        {
+                            "name": name,
+                            "value": str(value),
+                            "domain": ".xiaohongshu.com",
+                            "path": "/",
+                            "secure": True,
+                            "sameSite": "Lax",
+                        }
+                        for name, value in self.cookies.items()
+                        if name != "saved_at" and value is not None
+                    ])
+                    page = context.new_page()
+
+                    def _capture_response(resp) -> None:
+                        if target_path not in resp.url:
+                            return
+                        try:
+                            payload = resp.json()
+                        except Exception:
+                            return
+                        if (
+                            isinstance(payload, dict)
+                            and payload.get("success")
+                            and isinstance(payload.get("data"), dict)
+                        ):
+                            responses[_response_cursor(resp.url)] = payload["data"]
+                        elif isinstance(payload, dict):
+                            errors.append(payload)
+
+                    page.on("response", _capture_response)
+                    page.goto(f"{HOME_URL}/user/profile/{user_id}", wait_until="domcontentloaded", timeout=45_000)
+                    page.wait_for_timeout(2_500)
+
+                    try:
+                        page.get_by_text("收藏", exact=True).click(timeout=5_000)
+                    except PlaywrightTimeoutError as exc:
+                        raise XhsApiError("Browser fallback could not find the favorites tab") from exc
+
+                    deadline = time.time() + 12
+                    while time.time() < deadline and cursor not in responses:
+                        page.wait_for_timeout(500)
+
+                    scroll_attempts = 0
+                    while cursor not in responses and scroll_attempts < 8:
+                        page.mouse.wheel(0, 3_000)
+                        scroll_attempts += 1
+                        deadline = time.time() + 4
+                        while time.time() < deadline and cursor not in responses:
+                            page.wait_for_timeout(500)
+
+                    if cursor in responses:
+                        return responses[cursor]
+
+                    if errors:
+                        raise XhsApiError(
+                            f"Browser fallback API error: {json.dumps(errors[-1], ensure_ascii=False)[:300]}",
+                            code=errors[-1].get("code"),
+                            response=errors[-1],
+                        )
+                    raise XhsApiError("Browser fallback did not receive favorites data")
+                except XhsApiError:
+                    raise
+                except Exception as exc:
+                    raise XhsApiError("Favorites browser fallback failed while driving Camoufox") from exc
+        except XhsApiError:
+            raise
+        except Exception as exc:
+            raise UnsupportedOperationError(
+                "Favorites browser fallback could not start Camoufox. "
+                "Run `python -m camoufox fetch` first."
+            ) from exc
 
     def get_user_likes(self, user_id: str, cursor: str = "") -> dict[str, Any]:
         return self._main_api_get("/api/sns/web/v1/note/like/page", {

@@ -6,11 +6,248 @@ import httpx
 import pytest
 
 from xhs_cli.client import XhsClient
+from xhs_cli.constants import USER_AGENT
 from xhs_cli.cookies import cache_note_context, get_cached_note_context
-from xhs_cli.exceptions import UnsupportedOperationError, XhsApiError
+from xhs_cli.exceptions import SignatureError, UnsupportedOperationError, XhsApiError
 
 
 class TestFavorites:
+    def test_get_user_favorites_uses_current_web_params(self, monkeypatch):
+        captured = {}
+
+        def fake_get(self, uri, params=None):
+            captured["uri"] = uri
+            captured["params"] = params
+            return {"notes": [], "has_more": False, "cursor": ""}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_user_favorites("user-123", cursor="cursor-1")
+        finally:
+            client.close()
+
+        assert result["notes"] == []
+        assert captured["uri"] == "/api/sns/web/v2/note/collect/page"
+        assert captured["params"] == {
+            "num": 30,
+            "cursor": "cursor-1",
+            "user_id": "user-123",
+            "image_formats": "jpg,webp,avif",
+            "xsec_token": "",
+            "xsec_source": "",
+        }
+
+    def test_get_user_favorites_falls_back_to_browser_on_common_api_error(self, monkeypatch):
+        captured = {}
+
+        def fake_get(self, uri, params=None):
+            raise XhsApiError(
+                "API error: {\"code\": -1, \"success\": false}",
+                code=-1,
+                response={"code": -1, "success": False},
+            )
+
+        def fake_browser_fallback(self, user_id, cursor=""):
+            captured["user_id"] = user_id
+            captured["cursor"] = cursor
+            return {"notes": [{"note_id": "note-1"}], "has_more": False, "cursor": ""}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+        monkeypatch.setattr(XhsClient, "_get_user_favorites_with_browser", fake_browser_fallback)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_user_favorites("user-123", cursor="cursor-1")
+        finally:
+            client.close()
+
+        assert result["notes"] == [{"note_id": "note-1"}]
+        assert captured == {"user_id": "user-123", "cursor": "cursor-1"}
+
+    def test_get_user_favorites_falls_back_to_browser_on_signature_error(self, monkeypatch):
+        captured = {}
+
+        def fake_get(self, uri, params=None):
+            raise SignatureError()
+
+        def fake_browser_fallback(self, user_id, cursor=""):
+            captured["user_id"] = user_id
+            captured["cursor"] = cursor
+            return {"notes": [{"note_id": "note-1"}], "has_more": False, "cursor": ""}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+        monkeypatch.setattr(XhsClient, "_get_user_favorites_with_browser", fake_browser_fallback)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_user_favorites("user-123", cursor="cursor-1")
+        finally:
+            client.close()
+
+        assert result["notes"] == [{"note_id": "note-1"}]
+        assert captured == {"user_id": "user-123", "cursor": "cursor-1"}
+
+    def test_get_user_favorites_browser_fallback_uses_camoufox_backend(self, monkeypatch):
+        captured = {}
+
+        class FakeResponse:
+            url = "https://edith.xiaohongshu.com/api/sns/web/v2/note/collect/page?cursor=cursor-1"
+
+            def json(self):
+                return {
+                    "success": True,
+                    "data": {"notes": [{"note_id": "note-1"}], "has_more": False, "cursor": ""},
+                }
+
+        class FakeMouse:
+            def wheel(self, x, y):
+                captured["wheel"] = (x, y)
+
+        class FakeLocator:
+            def __init__(self, page):
+                self.page = page
+
+            def click(self, timeout):
+                captured["click_timeout"] = timeout
+                self.page.handlers["response"](FakeResponse())
+
+        class FakePage:
+            def __init__(self):
+                self.handlers = {}
+                self.mouse = FakeMouse()
+
+            def on(self, event, handler):
+                self.handlers[event] = handler
+
+            def goto(self, url, wait_until, timeout):
+                captured["goto"] = (url, wait_until, timeout)
+
+            def wait_for_timeout(self, timeout):
+                captured.setdefault("waits", []).append(timeout)
+
+            def get_by_text(self, text, exact):
+                captured["tab_locator"] = (text, exact)
+                return FakeLocator(self)
+
+        class FakeContext:
+            def add_cookies(self, cookies):
+                captured["cookies"] = cookies
+
+            def new_page(self):
+                captured["new_page"] = True
+                return FakePage()
+
+        class FakeBrowser:
+            def new_context(self, **kwargs):
+                captured["context_kwargs"] = kwargs
+                return FakeContext()
+
+        class FakeCamoufox:
+            def __init__(self, **kwargs):
+                captured["launch_kwargs"] = kwargs
+
+            def __enter__(self):
+                return FakeBrowser()
+
+            def __exit__(self, *args):
+                captured["closed"] = True
+
+        monkeypatch.setattr("xhs_cli.qr_login._ensure_camoufox_ready", lambda: None)
+        monkeypatch.setattr("camoufox.sync_api.Camoufox", FakeCamoufox)
+
+        client = XhsClient({"a1": "cookie", "saved_at": "ignored"})
+        try:
+            result = client._get_user_favorites_with_browser("user-123", cursor="cursor-1")
+        finally:
+            client.close()
+
+        assert result["notes"] == [{"note_id": "note-1"}]
+        assert captured["launch_kwargs"] == {"headless": True}
+        assert captured["context_kwargs"] == {"user_agent": USER_AGENT, "locale": "zh-CN"}
+        assert captured["cookies"] == [{
+            "name": "a1",
+            "value": "cookie",
+            "domain": ".xiaohongshu.com",
+            "path": "/",
+            "secure": True,
+            "sameSite": "Lax",
+        }]
+        assert captured["goto"] == (
+            "https://www.xiaohongshu.com/user/profile/user-123",
+            "domcontentloaded",
+            45_000,
+        )
+        assert captured["tab_locator"] == ("收藏", True)
+        assert captured["click_timeout"] == 5_000
+        assert captured["closed"] is True
+
+    def test_get_user_favorites_browser_fallback_wraps_start_failure(self, monkeypatch):
+        class FakeCamoufox:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                raise RuntimeError("browser failed to launch")
+
+            def __exit__(self, *args):
+                return None
+
+        monkeypatch.setattr("xhs_cli.qr_login._ensure_camoufox_ready", lambda: None)
+        monkeypatch.setattr("camoufox.sync_api.Camoufox", FakeCamoufox)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            with pytest.raises(UnsupportedOperationError, match="could not start Camoufox"):
+                client._get_user_favorites_with_browser("user-123")
+        finally:
+            client.close()
+
+    def test_get_user_favorites_browser_fallback_wraps_navigation_failure(self, monkeypatch):
+        class FakePage:
+            def __init__(self):
+                self.mouse = object()
+
+            def on(self, event, handler):
+                return None
+
+            def goto(self, url, wait_until, timeout):
+                raise RuntimeError("navigation failed")
+
+        class FakeContext:
+            def add_cookies(self, cookies):
+                return None
+
+            def new_page(self):
+                return FakePage()
+
+        class FakeBrowser:
+            def new_context(self, **kwargs):
+                return FakeContext()
+
+        class FakeCamoufox:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return FakeBrowser()
+
+            def __exit__(self, *args):
+                return None
+
+        monkeypatch.setattr("xhs_cli.qr_login._ensure_camoufox_ready", lambda: None)
+        monkeypatch.setattr("camoufox.sync_api.Camoufox", FakeCamoufox)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            with pytest.raises(XhsApiError, match="failed while driving Camoufox") as exc_info:
+                client._get_user_favorites_with_browser("user-123")
+        finally:
+            client.close()
+
+        assert not isinstance(exc_info.value, UnsupportedOperationError)
+
     def test_unfavorite_uses_note_ids_payload(self, monkeypatch):
         captured = {}
 
