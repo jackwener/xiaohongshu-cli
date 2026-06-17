@@ -1,10 +1,13 @@
 """Tests for CLI commands using Click's test runner."""
 
+from pathlib import Path
+
 import pytest
 import yaml
 from click.testing import CliRunner
 
 from xhs_cli.cli import cli
+from xhs_cli.downloads import SavedImage
 from xhs_cli.exceptions import NoCookieError, SessionExpiredError, UnsupportedOperationError
 
 runner = CliRunner()
@@ -266,6 +269,11 @@ class TestCliBasic:
         assert result.exit_code == 0
         assert "index" in result.output.lower()
 
+    def test_read_help_mentions_save_images(self):
+        result = runner.invoke(cli, ["read", "--help"])
+        assert result.exit_code == 0
+        assert "--save-images" in result.output
+
     def test_comments_help_mentions_short_index(self):
         result = runner.invoke(cli, ["comments", "--help"])
         assert result.exit_code == 0
@@ -301,6 +309,43 @@ class TestCliBasic:
         assert called["note_id"] == "note-abc"
         assert called["kwargs"]["xsec_token"] == "token-abc"
         assert called["kwargs"]["xsec_source"] == "pc_search"
+
+    def test_read_save_images_outputs_saved_paths(self, monkeypatch, tmp_path):
+        class FakeClient:
+            def get_note_detail(self, note_id, **kwargs):
+                assert note_id == "note-abc"
+                return FAKE_NOTE_RESPONSE
+
+        def fake_run_client_action(ctx, action):
+            return action(FakeClient())
+
+        output_dir = tmp_path / "downloads"
+        saved_path = output_dir / "note-abc" / "image-1.jpg"
+
+        monkeypatch.setattr("xhs_cli.commands.reading.run_client_action", fake_run_client_action)
+        monkeypatch.setattr(
+            "xhs_cli.commands.reading.download_note_images",
+            lambda data, output: [
+                SavedImage(
+                    index=1,
+                    url="https://img.example/image.jpg",
+                    path=Path(output) / "note-abc" / "image-1.jpg",
+                )
+            ],
+        )
+
+        result = runner.invoke(cli, ["read", "note-abc", "--save-images", "--output", str(output_dir), "--yaml"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is True
+        assert payload["data"]["saved_images"] == [
+            {
+                "index": 1,
+                "url": "https://img.example/image.jpg",
+                "path": str(saved_path),
+            }
+        ]
 
     def test_comments_index_resolves_note_context(self, monkeypatch):
         monkeypatch.setattr(

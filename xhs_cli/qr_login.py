@@ -337,6 +337,16 @@ def _ensure_camoufox_ready() -> None:
         )
 
 
+def _camoufox_launch_options() -> dict[str, Any]:
+    """Return Camoufox launch options for browser-assisted QR login."""
+    from camoufox import DefaultAddons
+
+    return {
+        "headless": False,
+        "exclude_addons": [DefaultAddons.UBO],
+    }
+
+
 def _browser_assisted_qrcode_login(
     *,
     on_status: callable[[str], None] | None = None,
@@ -347,6 +357,7 @@ def _browser_assisted_qrcode_login(
 
     try:
         from camoufox.sync_api import Camoufox
+        launch_options = _camoufox_launch_options()
     except ImportError as exc:
         raise BrowserQrLoginUnavailable(
             "Camoufox sync API is unavailable in the current environment."
@@ -356,7 +367,7 @@ def _browser_assisted_qrcode_login(
 
     _emit_status(on_status, "🔑 Starting browser-assisted QR login...")
 
-    with Camoufox(headless=False) as browser:
+    with Camoufox(**launch_options) as browser:
         page = browser.new_page()
 
         def _handle_response(response) -> None:

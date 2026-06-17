@@ -125,6 +125,8 @@ def render_note(data: dict[str, Any]) -> None:
 
     if note["image_count"]:
         table.add_row("图片", f"{note['image_count']} 张")
+        for index, image_url in enumerate(note.get("image_urls", []), 1):
+            table.add_row(f"图片 {index}", f"[link={image_url}]{image_url}[/link]")
 
     console.print(Panel(table, title=f"📝 {title}", border_style="green"))
 
