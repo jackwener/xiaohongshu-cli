@@ -4,7 +4,12 @@ import pytest
 
 from xhs_cli.command_normalizers import normalize_xhs_user_payload
 from xhs_cli.exceptions import XhsApiError
-from xhs_cli.qr_login import BrowserQrLoginUnavailable, _normalize_browser_cookies, qrcode_login
+from xhs_cli.qr_login import (
+    BrowserQrLoginUnavailable,
+    _camoufox_launch_options,
+    _normalize_browser_cookies,
+    qrcode_login,
+)
 
 
 class _FakeQrClient:
@@ -217,6 +222,15 @@ def test_qrcode_login_falls_back_when_browser_backend_unavailable(monkeypatch):
         "webId": "webid-http",
         "web_session": "http-session",
     }
+
+
+def test_browser_assisted_login_excludes_default_addons():
+    from camoufox import DefaultAddons
+
+    options = _camoufox_launch_options()
+
+    assert options["headless"] is False
+    assert options["exclude_addons"] == [DefaultAddons.UBO]
 
 
 def test_normalize_browser_cookies_uses_allowlist():
