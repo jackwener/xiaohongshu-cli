@@ -5,6 +5,41 @@ from __future__ import annotations
 from typing import Any
 
 
+def _extract_image_url(image: dict[str, Any]) -> str:
+    for key in ("url_default", "url_pre", "url"):
+        value = image.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    for key in ("url_list", "info_list"):
+        values = image.get(key)
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if isinstance(value, str) and value:
+                return value
+            if isinstance(value, dict):
+                url = _extract_image_url(value)
+                if url:
+                    return url
+
+    return ""
+
+
+def _extract_image_urls(images: Any) -> list[str]:
+    if not isinstance(images, list):
+        return []
+    urls = []
+    for image in images:
+        if isinstance(image, dict):
+            url = _extract_image_url(image)
+            if url:
+                urls.append(url)
+        elif isinstance(image, str) and image:
+            urls.append(image)
+    return urls
+
+
 def _coerce_int(value: Any, default: int = 0) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -47,6 +82,8 @@ def normalize_note_detail(data: dict[str, Any]) -> dict[str, Any] | None:
     interact = note.get("interact_info", {})
     tags = note.get("tag_list", [])
 
+    image_list = note.get("image_list", [])
+
     return {
         "title": note.get("title", "Untitled"),
         "desc": note.get("desc", ""),
@@ -56,7 +93,8 @@ def normalize_note_detail(data: dict[str, Any]) -> dict[str, Any] | None:
         "comment_count": interact.get("comment_count", "0"),
         "share_count": interact.get("share_count", "0"),
         "tags": [tag.get("name", "") for tag in tags if tag.get("name")],
-        "image_count": len(note.get("image_list", [])),
+        "image_count": len(image_list) if isinstance(image_list, list) else 0,
+        "image_urls": _extract_image_urls(image_list),
     }
 
 

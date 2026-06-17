@@ -1,6 +1,7 @@
 """Unit tests for formatter (no network required)."""
 
 from xhs_cli.formatter import coerce_int, extract_note_id, format_count, parse_note_reference
+from xhs_cli.formatter_normalizers import normalize_note_detail
 
 
 class TestFormatCount:
@@ -60,3 +61,28 @@ class TestParseNoteReference:
         assert note_id == "abc123"
         assert token == "token-1"
         assert source == "pc_search"
+
+
+class TestNormalizeNoteDetail:
+    def test_extracts_image_urls(self):
+        note = normalize_note_detail({
+            "items": [
+                {
+                    "note_card": {
+                        "title": "Test",
+                        "image_list": [
+                            {"url_default": "https://img.example/default.jpg"},
+                            {"url_list": ["https://img.example/list.jpg"]},
+                            {"info_list": [{"url_pre": "https://img.example/pre.jpg"}]},
+                        ],
+                    }
+                }
+            ]
+        })
+
+        assert note["image_count"] == 3
+        assert note["image_urls"] == [
+            "https://img.example/default.jpg",
+            "https://img.example/list.jpg",
+            "https://img.example/pre.jpg",
+        ]

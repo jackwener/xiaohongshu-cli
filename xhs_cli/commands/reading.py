@@ -1,12 +1,16 @@
 """Reading commands: search, read, comments, sub-comments, user, user-posts, feed, hot, topics, search-user."""
 
+from pathlib import Path
+
 import click
 
 from ..command_normalizers import normalize_paged_notes
 from ..cookies import cache_note_context
+from ..downloads import DEFAULT_DOWNLOAD_DIR, download_note_images
 from ..formatter import (
     maybe_print_structured,
     print_info,
+    print_success,
     render_comments,
     render_feed,
     render_note,
@@ -82,9 +86,26 @@ def search(ctx, keyword: str, sort: str, note_type: str, page: int, as_json: boo
 @click.command()
 @click.argument("id_or_url")
 @click.option("--xsec-token", default="", help="Security token (or reuse a cached token for this note)")
+@click.option("--save-images", is_flag=True, help="Download note images after reading")
+@click.option(
+    "--output",
+    "output_dir",
+    default=DEFAULT_DOWNLOAD_DIR,
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    show_default=True,
+    help="Directory for --save-images downloads",
+)
 @structured_output_options
 @click.pass_context
-def read(ctx, id_or_url: str, xsec_token: str, as_json: bool, as_yaml: bool):
+def read(
+    ctx,
+    id_or_url: str,
+    xsec_token: str,
+    save_images: bool,
+    output_dir: Path,
+    as_json: bool,
+    as_yaml: bool,
+):
     """Read a note by ID, URL, or short index."""
     note_id, token, url_source = resolve_note_reference(id_or_url, xsec_token=xsec_token)
     xsec_source = url_source or "pc_feed"
@@ -96,6 +117,30 @@ def read(ctx, id_or_url: str, xsec_token: str, as_json: bool, as_yaml: bool):
         if url_source:
             kwargs["xsec_source"] = url_source
         return client.get_note_detail(note_id, **kwargs)
+
+    if save_images:
+        try:
+            data = run_client_action(ctx, _read_action)
+            saved_images = download_note_images(data, output_dir)
+            if not maybe_print_structured(
+                {
+                    "note": data,
+                    "saved_images": [
+                        {"index": image.index, "url": image.url, "path": str(image.path)}
+                        for image in saved_images
+                    ],
+                },
+                as_json=as_json,
+                as_yaml=as_yaml,
+            ):
+                render_note(data)
+                if saved_images:
+                    print_success(f"Saved {len(saved_images)} image(s) to {saved_images[0].path.parent}")
+                else:
+                    print_info("No images to save")
+            return
+        except Exception as exc:
+            exit_for_error(exc, as_json=as_json, as_yaml=as_yaml)
 
     handle_command(
         ctx,
