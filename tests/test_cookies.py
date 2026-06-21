@@ -7,9 +7,11 @@ import pytest
 
 from xhs_cli.cookies import (
     NOTE_CONTEXT_TTL_SECONDS,
+    CookieDecryptionError,
     cache_note_context,
     clear_cookies,
     cookies_to_string,
+    extract_browser_cookies,
     get_cached_note_context,
     get_cached_xsec_token,
     get_cookies,
@@ -21,6 +23,7 @@ from xhs_cli.cookies import (
     save_cookies,
     save_note_index,
 )
+from xhs_cli.exceptions import BrowserCookieDecryptionError
 
 
 @pytest.fixture
@@ -109,6 +112,23 @@ class TestGetCookies:
         assert browser == "chrome"
         assert cookies == {"a1": "fresh"}
         assert saved == [{"a1": "fresh"}]
+
+    def test_decryption_failure_is_not_reported_as_missing_cookie(self, monkeypatch):
+        monkeypatch.setattr(
+            "xhs_cli.cookies._extract_in_process",
+            lambda source: (_ for _ in ()).throw(
+                CookieDecryptionError(source, "Unable to get key for cookie decryption")
+            ),
+        )
+        monkeypatch.setattr("xhs_cli.cookies._extract_via_subprocess", lambda source: None)
+
+        with pytest.raises(BrowserCookieDecryptionError) as exc_info:
+            extract_browser_cookies("chrome")
+
+        message = str(exc_info.value)
+        assert "Cookie decryption failed" in message
+        assert "Unable to get key for cookie decryption" in message
+        assert "xhs login --qrcode" in message
 
 
 class TestNoteContextCache:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import re
 import subprocess
 import sys
 import threading
@@ -16,6 +17,30 @@ from typing import Any
 from .constants import CONFIG_DIR_NAME, COOKIE_FILE, INDEX_CACHE_FILE, TOKEN_CACHE_FILE
 
 logger = logging.getLogger(__name__)
+
+_COOKIE_DECRYPTION_ERROR_PATTERNS = (
+    re.compile(r"unable to get key for cookie decryption", re.IGNORECASE),
+    re.compile(r"decrypt", re.IGNORECASE),
+)
+
+
+class CookieExtractionError(Exception):
+    """Internal signal for browser cookie extraction errors."""
+
+    def __init__(self, source: str, message: str):
+        super().__init__(message)
+        self.source = source
+        self.message = message
+
+
+class CookieDecryptionError(CookieExtractionError):
+    """Internal signal for cookie decryption failures."""
+
+
+def _is_cookie_decryption_error(message: str) -> bool:
+    """Return True when browser_cookie3 failed while decrypting cookies."""
+    return any(pattern.search(message) for pattern in _COOKIE_DECRYPTION_ERROR_PATTERNS)
+
 
 # Cookie TTL: warn and attempt browser refresh after 7 days
 COOKIE_TTL_DAYS = 7
@@ -361,8 +386,11 @@ def _extract_in_process(source: str) -> dict[str, str] | None:
     try:
         jar = loader(domain_name=".xiaohongshu.com")
     except Exception as exc:
-        logger.debug("%s in-process extraction failed: %s", source, exc)
-        return None
+        message = str(exc)
+        logger.debug("%s in-process extraction failed: %s", source, message)
+        if _is_cookie_decryption_error(message):
+            raise CookieDecryptionError(source, message) from exc
+        raise CookieExtractionError(source, message) from exc
 
     cookies = {cookie.name: cookie.value for cookie in jar if "xiaohongshu.com" in (cookie.domain or "")}
     if cookies.get("a1"):
@@ -414,8 +442,11 @@ except Exception as e:
 
         data = json.loads(result.stdout.strip())
         if "error" in data:
-            logger.debug("Cookie extraction error: %s", data["error"])
-            return None
+            message = str(data["error"])
+            logger.debug("Cookie extraction error: %s", message)
+            if _is_cookie_decryption_error(message):
+                raise CookieDecryptionError(source, message)
+            raise CookieExtractionError(source, message)
 
         return data["cookies"]
 
@@ -437,12 +468,20 @@ def extract_browser_cookies(source: str = "auto") -> tuple[str, dict[str, str]] 
     Returns ``(browser_name, cookies)`` on success, or ``None``.
     """
     if source != "auto":
-        cookies = _extract_in_process(source)
-        if cookies:
-            return source, cookies
-        cookies = _extract_via_subprocess(source)
-        if cookies:
-            return source, cookies
+        extraction_errors: list[CookieExtractionError] = []
+        for extractor in (_extract_in_process, _extract_via_subprocess):
+            try:
+                cookies = extractor(source)
+            except CookieExtractionError as exc:
+                extraction_errors.append(exc)
+                continue
+            if cookies:
+                return source, cookies
+        for exc in extraction_errors:
+            if isinstance(exc, CookieDecryptionError):
+                from .exceptions import BrowserCookieDecryptionError
+
+                raise BrowserCookieDecryptionError(source, exc.message) from exc
         return None
 
     # Auto-detect: try all available browsers
@@ -454,26 +493,42 @@ def extract_browser_cookies(source: str = "auto") -> tuple[str, dict[str, str]] 
 
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
-    def _try_browser(browser: str) -> tuple[str, dict[str, str]] | None:
+    def _try_browser(browser: str) -> tuple[str, dict[str, str]] | CookieExtractionError | None:
         logger.debug("Auto-detect: trying %s …", browser)
-        cookies = _extract_in_process(browser)
-        if cookies:
-            return browser, cookies
-        cookies = _extract_via_subprocess(browser)
-        if cookies:
-            return browser, cookies
+        extraction_errors: list[CookieExtractionError] = []
+        for extractor in (_extract_in_process, _extract_via_subprocess):
+            try:
+                cookies = extractor(browser)
+            except CookieExtractionError as exc:
+                extraction_errors.append(exc)
+                continue
+            if cookies:
+                return browser, cookies
+        for exc in extraction_errors:
+            if isinstance(exc, CookieDecryptionError):
+                return exc
         return None
 
+    decryption_errors: list[CookieDecryptionError] = []
     with ThreadPoolExecutor(max_workers=min(4, len(browsers) or 1)) as pool:
         pending = {pool.submit(_try_browser, browser) for browser in browsers}
         while pending:
             done, pending = wait(pending, return_when=FIRST_COMPLETED)
             for future in done:
                 result = future.result()
+                if isinstance(result, CookieDecryptionError):
+                    decryption_errors.append(result)
+                    continue
                 if result:
                     for rest in pending:
                         rest.cancel()
                     return result
+
+    if decryption_errors:
+        from .exceptions import BrowserCookieDecryptionError
+
+        details = "; ".join(f"{exc.source}: {exc.message}" for exc in decryption_errors)
+        raise BrowserCookieDecryptionError(source, details)
 
     return None
 
