@@ -62,3 +62,20 @@ class NoCookieError(XhsApiError):
         msg += "  2. Make sure you are logged in\n"
         msg += "  3. Try: xhs login --cookie-source <browser>"
         super().__init__(msg)
+
+
+class BrowserCookieDecryptionError(NoCookieError):
+    """Raised when browser cookies cannot be decrypted by browser_cookie3."""
+
+    def __init__(self, source: str, reason: str = ""):
+        if source == "auto":
+            msg = "Cookie decryption failed while reading browser cookies."
+        else:
+            msg = f"Cookie decryption failed while reading {source} cookies."
+        if reason:
+            msg += f"\nReason: {reason}"
+        msg += "\n\nTroubleshooting:\n"
+        msg += "  1. Chrome/Edge 127+ on Windows may use App-Bound Encryption, "
+        msg += "which blocks third-party cookie readers\n"
+        msg += "  2. Use QR code login instead: xhs login --qrcode"
+        XhsApiError.__init__(self, msg, code="not_authenticated")
