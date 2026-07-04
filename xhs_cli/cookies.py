@@ -26,6 +26,14 @@ _TOKEN_CACHE_PATH: Path | None = None
 NOTE_CONTEXT_TTL_SECONDS = 86400
 
 
+# Non-cookie metadata keys that external tools or users may store in the
+# cookie file alongside real cookies.  Stripped on load to prevent them
+# from being sent in the HTTP Cookie header.
+_META_COOKIE_KEYS: frozenset[str] = frozenset({
+    "nickname", "user_id", "red_id", "description",
+    "tags", "added_at", "slug", "browser_source",
+})
+
 
 def get_config_dir() -> Path:
     """Get or create config directory."""
@@ -50,18 +58,52 @@ def get_index_cache_path() -> Path:
 
 
 def load_saved_cookies() -> dict[str, str] | None:
-    """Load cookies from local storage."""
+    """Load cookies from local storage.
+
+    Non-cookie metadata stored alongside real cookies (e.g. ``nickname``,
+    ``user_id``) is filtered out -- see :func:`_sanitize_cookie_dict`.
+    """
     cookie_path = get_cookie_path()
     if not cookie_path.exists():
         return None
     try:
         data = json.loads(cookie_path.read_text())
         if data.get("a1"):
-            logger.debug("Loaded saved cookies from %s", cookie_path)
-            return data
+            cookies = _sanitize_cookie_dict(data)
+            logger.debug("Loaded %d cookies from %s", len(cookies), cookie_path)
+            return cookies
     except (OSError, json.JSONDecodeError) as e:
         logger.debug("Failed to load saved cookies: %s", e)
     return None
+
+
+def _sanitize_cookie_dict(raw: dict[str, Any]) -> dict[str, str]:
+    """Filter a raw cookie-file dict to valid HTTP cookie entries.
+
+    The cookie file is plain JSON, and external tools (or multi-account
+    managers) may store metadata alongside cookies -- e.g. ``nickname``,
+    ``user_id``, ``tags``.  Non-cookie entries are stripped here because:
+
+    * Known metadata keys (``_META_COOKIE_KEYS``) are not real cookies.
+    * HTTP cookie values must be ASCII-safe; non-ASCII values (e.g. a
+      Chinese ``nickname``) cause ``UnicodeEncodeError`` when httpx
+      builds the ``Cookie`` header.
+
+    ``saved_at`` is retained for TTL-based refresh in :func:`get_cookies`.
+    """
+    sanitized: dict[str, str] = {}
+    for key, value in raw.items():
+        if key == "saved_at":
+            sanitized[key] = value
+            continue
+        if key in _META_COOKIE_KEYS:
+            continue
+        str_value = str(value)
+        if key.isascii() and str_value.isascii():
+            sanitized[key] = str_value
+        else:
+            logger.debug("Skipping non-cookie entry %r in cookie file", key)
+    return sanitized
 
 
 def save_cookies(cookies: dict[str, str]) -> None:

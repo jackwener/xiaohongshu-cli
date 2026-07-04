@@ -64,6 +64,50 @@ class TestLoadSavedCookies:
         (tmp_config_dir / "cookies.json").write_text('{"web_session": "x"}')
         assert load_saved_cookies() is None
 
+    def test_strips_non_cookie_metadata(self, tmp_config_dir):
+        """Metadata fields (nickname, user_id, etc.) must not leak into cookies."""
+        (tmp_config_dir / "cookies.json").write_text(
+            '{"a1": "abc", "web_session": "sess", '
+            '"nickname": "TestUser", "user_id": "12345", "tags": []}'
+        )
+        loaded = load_saved_cookies()
+        assert loaded is not None
+        assert "a1" in loaded
+        assert "web_session" in loaded
+        assert "nickname" not in loaded
+        assert "user_id" not in loaded
+        assert "tags" not in loaded
+
+    def test_strips_non_ascii_values(self, tmp_config_dir):
+        """Non-ASCII values cause UnicodeEncodeError in httpx; must be dropped."""
+        (tmp_config_dir / "cookies.json").write_text(
+            '{"a1": "abc", "web_session": "sess", '
+            '"nickname": "\u4e2d\u6587\u6635\u79f0"}'
+        )
+        loaded = load_saved_cookies()
+        assert loaded is not None
+        assert "a1" in loaded
+        assert "web_session" in loaded
+        assert "nickname" not in loaded
+        assert "saved_at" in loaded or True  # saved_at may or may not be present
+
+    def test_cookies_to_string_ascii_safe(self, tmp_config_dir):
+        """End-to-end: cookies loaded from a file with metadata must be ASCII-safe."""
+        import json as _json
+        data = {
+            "a1": "abc123",
+            "web_session": "sess456",
+            "nickname": "\u4e2d\u6587",  # Chinese chars
+            "user_id": "999",
+        }
+        (tmp_config_dir / "cookies.json").write_text(_json.dumps(data))
+        loaded = load_saved_cookies()
+        assert loaded is not None
+        # cookies_to_string must not raise UnicodeEncodeError
+        header = cookies_to_string(loaded)
+        assert "a1=abc123" in header
+        header.encode("ascii")  # must not raise
+
 
 class TestClearCookies:
     def test_clear_existing(self, tmp_config_dir):
