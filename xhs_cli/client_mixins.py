@@ -627,6 +627,50 @@ class CreatorEndpointsMixin:
             "page": page,
         })
 
+    def text2img(
+        self,
+        text: str,
+        page_num: int = 1,
+        style_json: str = "",
+    ) -> dict[str, Any]:
+        """调用小红书"文字配图"接口,根据文字生成多风格封面图片。
+
+        接口一次返回多个风格(基础/弥散/插图/简约/涂写等)的图片 URL。
+
+        Args:
+            text: 要生成图片的文字内容
+            page_num: 风格分页,1 表示第一批风格(接口按 has_next 翻页)
+            style_json: 指定样式的 JSON 字符串,空字符串表示用推荐样式
+
+        Returns:
+            接口 data 字段,含 has_next 和 text2_img_type_results(各风格图片列表)
+        """
+        request_id = self._search_request_id()
+        data = {
+            "page_type": "cover",
+            "text_config_list": [
+                {
+                    "index": 0,
+                    "text": text,
+                    "text_attribute": json.dumps({
+                        "edit_content": text,
+                        "text_list": [text],
+                        "text_size": 0,
+                        "line_space": 0,
+                        "word_space": 0,
+                        "use_system_fonts": 0,
+                    }, separators=(",", ":"), ensure_ascii=False),
+                }
+            ],
+            "style_json": style_json,
+            "page_num": page_num,
+            "request_id": request_id,
+            "extra_info": "",
+        }
+        return self._creator_post(
+            "/api/galaxy/v2/creator/post/inspiration/text2imgv3", data
+        )
+
 
 class SocialEndpointsMixin:
     """Social graph and saved-content endpoints."""
