@@ -21,6 +21,7 @@ Usage:
     xhs unread
     xhs post --title "..." --body "..." --images img.png
     xhs delete <id_or_url> [-y]
+    xhs text2img --text "内容" [--page 1] [--download ./out/]
 """
 
 from __future__ import annotations
@@ -109,6 +110,7 @@ cli.add_command(social.likes)
 cli.add_command(creator.post)
 cli.add_command(creator.my_notes)
 cli.add_command(creator.delete)
+cli.add_command(creator.text2img)
 
 # ─── Notification commands ──────────────────────────────────────────────────
 
