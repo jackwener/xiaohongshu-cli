@@ -56,11 +56,18 @@ _fix_windows_encoding()
     show_default=True,
     help="Browser to read cookies from (auto = try all installed browsers)",
 )
+@click.option(
+    "--cdp-port",
+    type=click.IntRange(1, 65535),
+    default=None,
+    help="Read cookies from a Chromium browser debugging on localhost",
+)
 @click.pass_context
-def cli(ctx, verbose: bool, cookie_source: str):
+def cli(ctx, verbose: bool, cookie_source: str, cdp_port: int | None):
     """xhs — Xiaohongshu CLI via reverse-engineered API 📕"""
     ctx.ensure_object(dict)
     ctx.obj["cookie_source"] = cookie_source
+    ctx.obj["cdp_port"] = cdp_port
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG, format="%(name)s %(message)s")

@@ -64,6 +64,7 @@ uv sync
 ```bash
 # ─── Auth ─────────────────────────────────────────
 xhs login                             # Extract cookies from browser
+xhs --cdp-port 9222 login             # Read cookies from a local debug-enabled Chromium
 xhs login --qrcode                    # Browser-assisted QR login, scan in terminal
 xhs status                            # Check login status
 xhs whoami                            # Detailed profile (fans, likes, etc)
@@ -150,10 +151,12 @@ xiaohongshu-cli supports multiple authentication methods:
 
 1. **Saved cookies** — loads from `~/.xiaohongshu-cli/cookies.json`
 2. **Browser cookies** — auto-detects installed browsers and extracts cookies (supports Chrome, Arc, Edge, Firefox, Safari, Brave, Chromium, Opera, Vivaldi, and more)
-3. **QR code login** — browser-assisted login with terminal QR output (`xhs login --qrcode`)
+3. **Local CDP** — read one logged-in session from a debug-enabled Chromium (`xhs --cdp-port 9222 login`)
+4. **QR code login** — browser-assisted login with terminal QR output (`xhs login --qrcode`)
 
 `xhs login` automatically tries all installed browsers and uses the first one with valid cookies.
 Use `--cookie-source <browser>` to specify a browser explicitly, or `--qrcode` for browser-assisted QR login.
+For CDP, start Chromium with `--remote-debugging-port=9222`, sign in to Xiaohongshu, then run the command above.
 Other authenticated commands automatically retry once with fresh browser cookies when the saved session has expired.
 
 ### Cookie TTL
@@ -360,6 +363,7 @@ uv sync
 ```bash
 # 认证
 xhs login                             # 从浏览器提取 Cookie
+xhs --cdp-port 9222 login             # 从本机调试模式 Chromium 读取 Cookie
 xhs login --qrcode                    # browser-assisted 二维码扫码登录（终端显示二维码）
 xhs status                            # 检查登录状态
 xhs whoami                            # 查看用户资料
@@ -432,7 +436,8 @@ xiaohongshu-cli 支持多种认证方式：
 
 1. **已保存 Cookie** — 从 `~/.xiaohongshu-cli/cookies.json` 加载
 2. **浏览器 Cookie** — 自动检测已安装浏览器并提取（支持 Chrome、Arc、Edge、Firefox、Safari、Brave、Chromium、Opera、Vivaldi 等）
-3. **二维码扫码登录** — browser-assisted 登录，终端显示二维码，用小红书 App 扫码（`xhs login --qrcode`）
+3. **本机 CDP** — 从调试模式 Chromium 读取一套已登录会话（`xhs --cdp-port 9222 login`）
+4. **二维码扫码登录** — browser-assisted 登录，终端显示二维码，用小红书 App 扫码（`xhs login --qrcode`）
 
 Cookie 保存后有效期 **7 天**，超时后自动尝试从浏览器刷新。
 

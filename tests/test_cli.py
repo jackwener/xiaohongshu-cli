@@ -58,6 +58,22 @@ class TestCliBasic:
         result = runner.invoke(cli, ["login", "--help"])
         assert result.exit_code == 0
 
+    def test_login_passes_local_cdp_options(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.get_cookies",
+            lambda source, **kwargs: calls.append((source, kwargs)) or ("cdp:127.0.0.1:9222", {"a1": "cookie"}),
+        )
+        monkeypatch.setattr(
+            "xhs_cli.commands.auth.XhsClient.get_self_info",
+            lambda self: {"nickname": "Alice", "red_id": "1"},
+        )
+
+        result = runner.invoke(cli, ["--cdp-port", "9222", "login"])
+
+        assert result.exit_code == 0
+        assert calls == [("auto", {"force_refresh": True, "cdp_port": 9222})]
+
     def test_status_help(self):
         result = runner.invoke(cli, ["status", "--help"])
         assert result.exit_code == 0
@@ -132,7 +148,9 @@ class TestCliBasic:
         monkeypatch.setenv("OUTPUT", "auto")
         monkeypatch.setattr(
             "xhs_cli.commands._common.get_cookies",
-            lambda source, force_refresh=False: (_ for _ in ()).throw(NoCookieError(source)),
+            lambda source, force_refresh=False, cdp_port=None: (
+                (_ for _ in ()).throw(NoCookieError(source))
+            ),
         )
 
         result = runner.invoke(cli, ["read", "abc", "--yaml"])

@@ -85,6 +85,28 @@ class TestCookiesToString:
 
 
 class TestGetCookies:
+    def test_prefers_cdp_when_port_is_set(self, monkeypatch):
+        extracted = {"a1": "cdp", "web_session": "session"}
+        monkeypatch.setattr("xhs_cli.cdp_cookies.extract_cdp_cookies", lambda port: extracted)
+        monkeypatch.setattr("xhs_cli.cookies.extract_browser_cookies", lambda source: None)
+        saved = []
+        monkeypatch.setattr("xhs_cli.cookies.save_cookies", lambda cookies: saved.append(cookies))
+
+        browser, cookies = get_cookies(cdp_port=9222)
+
+        assert browser == "cdp:127.0.0.1:9222"
+        assert cookies == extracted
+        assert saved == [extracted]
+
+    def test_failed_cdp_falls_back_to_saved_cookies(self, monkeypatch):
+        monkeypatch.setattr("xhs_cli.cdp_cookies.extract_cdp_cookies", lambda port: None)
+        monkeypatch.setattr("xhs_cli.cookies.load_saved_cookies", lambda: {"a1": "saved"})
+
+        browser, cookies = get_cookies(cdp_port=9222)
+
+        assert browser == "saved"
+        assert cookies == {"a1": "saved"}
+
     def test_prefers_saved_cookies_by_default(self, monkeypatch):
         monkeypatch.setattr("xhs_cli.cookies.load_saved_cookies", lambda: {"a1": "saved"})
         monkeypatch.setattr(

@@ -49,6 +49,7 @@ Ensure user is logged into xiaohongshu.com in any browser supported by [browser_
 ```bash
 xhs login                              # auto-detect browser with valid cookies
 xhs login --cookie-source arc          # specify browser explicitly
+xhs --cdp-port 9222 login              # local debug-enabled Chromium
 xhs login --qrcode                     # browser-assisted QR login with terminal QR output
 ```
 
