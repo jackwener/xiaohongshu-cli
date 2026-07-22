@@ -55,7 +55,7 @@ def load_saved_cookies() -> dict[str, str] | None:
     if not cookie_path.exists():
         return None
     try:
-        data = json.loads(cookie_path.read_text(encoding="utf-8"))
+        data = json.loads(cookie_path.read_text())
         if data.get("a1"):
             logger.debug("Loaded saved cookies from %s", cookie_path)
             return data
@@ -68,7 +68,7 @@ def save_cookies(cookies: dict[str, str]) -> None:
     """Save cookies to local storage with restricted permissions and TTL timestamp."""
     cookie_path = get_cookie_path()
     payload = {**cookies, "saved_at": time.time()}
-    cookie_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    cookie_path.write_text(json.dumps(payload, indent=2))
     cookie_path.chmod(0o600)
     logger.debug("Saved cookies to %s", cookie_path)
 
@@ -109,7 +109,7 @@ def _load_token_cache_from_disk(cache_path: Path) -> OrderedDict[str, dict[str, 
     if not cache_path.exists():
         return OrderedDict()
     try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data = json.loads(cache_path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         logger.debug("Failed to load token cache: %s", exc)
         return OrderedDict()
@@ -174,7 +174,7 @@ def save_token_cache(cache: dict[str, dict[str, Any]]) -> None:
     ))
 
     with _TOKEN_CACHE_LOCK:
-        cache_path.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+        cache_path.write_text(json.dumps(normalized, indent=2))
         cache_path.chmod(0o600)
         _TOKEN_CACHE_MEMORY = normalized
         _TOKEN_CACHE_PATH = cache_path
@@ -268,7 +268,7 @@ def save_note_index(items: list[dict[str, str]]) -> None:
         for entry in (_normalize_index_entry(item) for item in items)
         if entry
     ]
-    path.write_text(json.dumps(normalized, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(normalized, indent=2, ensure_ascii=False))
     path.chmod(0o600)
     logger.debug("Saved note index with %d entries", len(normalized))
 
@@ -283,7 +283,7 @@ def get_note_by_index(index: int) -> dict[str, str] | None:
         return None
 
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
 

@@ -87,7 +87,7 @@ def _load_search_session_cache_from_disk(path: Path) -> OrderedDict[tuple[str, s
     if not path.exists():
         return OrderedDict()
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return OrderedDict()
     if not isinstance(data, dict):
@@ -117,7 +117,7 @@ def _save_search_session_cache(path: Path) -> None:
         )
         for key, value in _SEARCH_SESSION_CACHE.items()
     )
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     path.chmod(0o600)
 
 
