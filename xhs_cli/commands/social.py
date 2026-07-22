@@ -8,7 +8,7 @@ import click
 from ..command_normalizers import normalize_paged_notes, resolve_current_user_id
 from ..formatter import print_info, print_success, render_user_posts
 from ..note_refs import save_index_from_notes
-from ._common import confirm_account_write, handle_command, run_client_action, structured_output_options
+from ._common import handle_command, run_client_action, structured_output_options
 
 
 def _resolve_user_id(ctx, user_id: str | None) -> str:
@@ -50,12 +50,10 @@ def _paged_notes_command(
 
 @click.command()
 @click.argument("user_id")
-@click.option("--yes", "-y", is_flag=True, help="Confirm this account write")
 @structured_output_options
 @click.pass_context
-def follow(ctx, user_id: str, yes: bool, as_json: bool, as_yaml: bool):
+def follow(ctx, user_id: str, as_json: bool, as_yaml: bool):
     """Follow a user."""
-    confirm_account_write("Follow", f"user {user_id}", yes)
     handle_command(
         ctx,
         action=lambda client: client.follow_user(user_id),
@@ -67,12 +65,10 @@ def follow(ctx, user_id: str, yes: bool, as_json: bool, as_yaml: bool):
 
 @click.command()
 @click.argument("user_id")
-@click.option("--yes", "-y", is_flag=True, help="Confirm this account write")
 @structured_output_options
 @click.pass_context
-def unfollow(ctx, user_id: str, yes: bool, as_json: bool, as_yaml: bool):
+def unfollow(ctx, user_id: str, as_json: bool, as_yaml: bool):
     """Unfollow a user."""
-    confirm_account_write("Unfollow", f"user {user_id}", yes)
     handle_command(
         ctx,
         action=lambda client: client.unfollow_user(user_id),
@@ -108,3 +104,4 @@ def likes(ctx, user_id: str | None, cursor: str, as_json: bool, as_yaml: bool):
         fetcher=lambda client, uid, cur: client.get_user_likes(uid, cursor=cur),
         user_id=user_id, cursor=cursor, as_json=as_json, as_yaml=as_yaml,
     )
+

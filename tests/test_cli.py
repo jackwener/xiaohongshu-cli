@@ -420,18 +420,10 @@ class TestCliBasic:
 
         monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", fake_handle_command)
 
-        result = runner.invoke(cli, [command, "1", *extra_args, "--yes"])
+        result = runner.invoke(cli, [command, "1", *extra_args])
 
         assert result.exit_code == 0
         assert called == {"method": method_name, "note_id": "note-abc"}
-
-    def test_write_requires_confirmation(self, monkeypatch):
-        monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", lambda *args, **kwargs: None)
-
-        result = runner.invoke(cli, ["like", "note-1"], input="n\n")
-
-        assert result.exit_code != 0
-        assert "unofficial API" in result.output
 
     def test_short_index_resolves_for_comment(self, monkeypatch):
         monkeypatch.setattr(
@@ -457,7 +449,7 @@ class TestCliBasic:
 
         monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", fake_handle_command)
 
-        result = runner.invoke(cli, ["comment", "1", "-c", "hello", "--yes"])
+        result = runner.invoke(cli, ["comment", "1", "-c", "hello"])
 
         assert result.exit_code == 0
         assert called == {"note_id": "note-abc", "content": "hello"}
@@ -487,7 +479,7 @@ class TestCliBasic:
 
         monkeypatch.setattr("xhs_cli.commands.interactions.handle_command", fake_handle_command)
 
-        result = runner.invoke(cli, ["reply", "1", "--comment-id", "c-1", "-c", "hello", "--yes"])
+        result = runner.invoke(cli, ["reply", "1", "--comment-id", "c-1", "-c", "hello"])
 
         assert result.exit_code == 0
         assert called == {"note_id": "note-abc", "comment_id": "c-1", "content": "hello"}

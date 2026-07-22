@@ -13,7 +13,7 @@ from ..formatter import (
     render_creator_notes,
 )
 from ..note_refs import save_index_from_notes
-from ._common import confirm_account_write, exit_for_error, handle_command, run_client_action, structured_output_options
+from ._common import exit_for_error, handle_command, run_client_action, structured_output_options
 
 
 def extract_hashtags(body: str) -> list[str]:
@@ -31,7 +31,6 @@ def extract_hashtags(body: str) -> list[str]:
 @click.option("--images", required=True, multiple=True, help="Image file path(s)")
 @click.option("--topic", "topics_flag", multiple=True, help="Topic(s)/hashtag(s) to search and attach")
 @click.option("--private", "is_private", is_flag=True, help="Publish as private note")
-@click.option("--yes", "-y", is_flag=True, help="Confirm this account write")
 @structured_output_options
 @click.pass_context
 def post(
@@ -41,13 +40,10 @@ def post(
     images: tuple[str, ...],
     topics_flag: tuple[str, ...],
     is_private: bool,
-    yes: bool,
     as_json: bool,
     as_yaml: bool,
 ):
     """Publish an image note."""
-    confirm_account_write("Publish", f"note {title!r}", yes)
-
     def _publish(client):
         file_ids = []
         for img_path in images:

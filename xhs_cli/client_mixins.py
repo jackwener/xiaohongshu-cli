@@ -282,16 +282,19 @@ class ReadingEndpointsMixin:
         search_id, is_new_session = _acquire_search_session(keyword, sort, note_type)
         if is_new_session:
             request_id = self._search_request_id()
-            self._main_api_post("/api/sns/web/v1/search/onebox", {
-                "keyword": keyword,
-                "search_id": search_id,
-                "biz_type": "web_search_user",
-                "request_id": request_id,
-            }, x_rap=True)
-            self._main_api_get("/api/sns/web/v1/search/filter", {
-                "keyword": keyword,
-                "search_id": search_id,
-            }, x_rap=True)
+            try:
+                self._main_api_post("/api/sns/web/v1/search/onebox", {
+                    "keyword": keyword,
+                    "search_id": search_id,
+                    "biz_type": "web_search_user",
+                    "request_id": request_id,
+                }, x_rap=True)
+                self._main_api_get("/api/sns/web/v1/search/filter", {
+                    "keyword": keyword,
+                    "search_id": search_id,
+                }, x_rap=True)
+            except XhsApiError as exc:
+                logger.debug("Search prewarm failed, continuing with search/notes: %s", exc)
 
         result = self._main_api_post("/api/sns/web/v1/search/notes", {
             "keyword": keyword,
@@ -306,7 +309,10 @@ class ReadingEndpointsMixin:
             "image_formats": ["jpg", "webp", "avif"],
         }, x_rap=True)
         if is_new_session:
-            self._main_api_get("/api/sns/web/v1/search/recommend", {"keyword": keyword}, x_rap=True)
+            try:
+                self._main_api_get("/api/sns/web/v1/search/recommend", {"keyword": keyword}, x_rap=True)
+            except XhsApiError as exc:
+                logger.debug("Search recommend prefetch failed: %s", exc)
         return result
 
     def get_note_by_id(

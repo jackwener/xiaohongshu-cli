@@ -27,15 +27,6 @@ def structured_output_options(command: Callable) -> Callable:
     return command
 
 
-def confirm_account_write(action: str, target: str, yes: bool) -> None:
-    """Require a deliberate confirmation before an unofficial account write."""
-    if not yes:
-        click.confirm(
-            f"{action} {target}? This uses an unofficial API and may trigger an account warning",
-            abort=True,
-        )
-
-
 def _cookie_source(ctx) -> str:
     return ctx.obj.get("cookie_source", "auto") if ctx.obj else "auto"
 

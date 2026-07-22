@@ -180,26 +180,6 @@ class TestReadingEndpointBehavior:
         assert notes_payload["filters"][0]["type"] == "sort_type"
         assert notes_payload["filters"][1]["type"] == "filter_note_type"
 
-    def test_search_stops_when_prewarm_is_rejected(self, monkeypatch):
-        monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE", OrderedDict())
-        monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_LOADED", True)
-        calls = []
-
-        def reject_first_post(self, uri, data, **kwargs):
-            calls.append(uri)
-            raise XhsApiError("account restricted", code=-104)
-
-        monkeypatch.setattr(XhsClient, "_main_api_post", reject_first_post)
-
-        client = XhsClient({"a1": "cookie"})
-        try:
-            with pytest.raises(XhsApiError, match="account restricted"):
-                client.search_notes("test")
-        finally:
-            client.close()
-
-        assert calls == ["/api/sns/web/v1/search/onebox"]
-
     def test_search_notes_reuses_search_id_across_pages(self, monkeypatch):
         calls = []
 
