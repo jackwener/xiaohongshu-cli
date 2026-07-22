@@ -339,7 +339,8 @@ class ReadingEndpointsMixin:
     ) -> dict[str, Any]:
         """Fetch note by parsing server-rendered HTML (no xsec_token required)."""
         html = self._fetch_note_html(note_id, xsec_token=xsec_token, xsec_source=xsec_source)
-        return extract_note_from_html(html, note_id)
+        note = extract_note_from_html(html, note_id)
+        return {"items": [{"id": note_id, "note_card": note}]}
 
     def get_note_detail(
         self,

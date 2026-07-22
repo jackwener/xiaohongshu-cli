@@ -102,6 +102,23 @@ class TestTransportCookies:
 
 
 class TestReadingEndpointBehavior:
+    def test_get_note_from_html_matches_feed_response_shape(self, monkeypatch):
+        monkeypatch.setattr(XhsClient, "_fetch_note_html", lambda *args, **kwargs: "<html>")
+        monkeypatch.setattr(
+            "xhs_cli.client_mixins.extract_note_from_html",
+            lambda html, note_id: {"title": "HTML note"},
+        )
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_note_from_html("note-123")
+        finally:
+            client.close()
+
+        assert result == {
+            "items": [{"id": "note-123", "note_card": {"title": "HTML note"}}],
+        }
+
     def test_get_note_detail_prefers_cached_xsec_source(self, monkeypatch):
         captured = {}
 
