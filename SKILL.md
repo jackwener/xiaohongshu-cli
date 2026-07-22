@@ -134,6 +134,8 @@ Payloads live under `.data`.
 | `xhs login --qrcode` | Browser-assisted QR login — terminal QR output, browser completes login |
 | `xhs status` | Check authentication status |
 | `xhs logout` | Clear cached cookies |
+| `xhs doctor --json` | Diagnose local auth, signing, browser support, and compatibility without exposing secrets |
+| `xhs support-bundle report.json` | Write a redacted diagnostic report for bug reports |
 | `xhs whoami` | Show current user profile |
 
 ## Agent Workflow Examples

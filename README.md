@@ -69,6 +69,9 @@ xhs status                            # Check login status
 xhs whoami                            # Detailed profile (fans, likes, etc)
 xhs whoami --json                     # Structured JSON envelope
 xhs logout                            # Clear saved cookies
+xhs doctor --json                     # Privacy-safe local diagnostics
+xhs doctor --network --json           # Also validate the API with saved cookies
+xhs support-bundle report.json        # Write a redacted, mode-0600 support report
 
 # ─── Search ───────────────────────────────────────
 xhs search "美食"                      # Search notes

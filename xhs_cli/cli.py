@@ -31,7 +31,7 @@ import sys
 import click
 
 from . import __version__
-from .commands import auth, creator, interactions, notifications, reading, social
+from .commands import auth, creator, diagnostics, interactions, notifications, reading, social
 
 
 def _fix_windows_encoding() -> None:
@@ -74,6 +74,8 @@ cli.add_command(auth.login)
 cli.add_command(auth.status)
 cli.add_command(auth.logout)
 cli.add_command(auth.whoami)
+cli.add_command(diagnostics.doctor)
+cli.add_command(diagnostics.support_bundle)
 
 # ─── Reading commands ────────────────────────────────────────────────────────
 
