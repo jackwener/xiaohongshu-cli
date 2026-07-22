@@ -1,5 +1,6 @@
 """Unit tests for XHS client request payloads, cookies, and endpoint selection."""
 
+import json
 from collections import OrderedDict
 from pathlib import Path
 
@@ -9,6 +10,20 @@ import pytest
 from xhs_cli.client import XhsClient
 from xhs_cli.cookies import cache_note_context, get_cached_note_context
 from xhs_cli.exceptions import UnsupportedOperationError, XhsApiError
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache_files(tmp_path, monkeypatch):
+    import xhs_cli.client_mixins as client_mixins
+    import xhs_cli.cookies as cookies
+
+    monkeypatch.setattr(cookies, "get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(cookies, "_TOKEN_CACHE_MEMORY", None)
+    monkeypatch.setattr(cookies, "_TOKEN_CACHE_PATH", None)
+    monkeypatch.setattr(client_mixins, "get_config_dir", lambda: tmp_path)
+    monkeypatch.setattr(client_mixins, "_SEARCH_SESSION_CACHE", OrderedDict())
+    monkeypatch.setattr(client_mixins, "_SEARCH_SESSION_CACHE_LOADED", False)
+    monkeypatch.setattr(client_mixins, "_SEARCH_SESSION_CACHE_PATH", None)
 
 
 def test_search_session_cache_reads_utf8(tmp_path, monkeypatch):
@@ -23,6 +38,16 @@ def test_search_session_cache_reads_utf8(tmp_path, monkeypatch):
         return original_read_text(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", checked_read_text)
+    assert _load_search_session_cache_from_disk(path) == OrderedDict()
+
+
+def test_search_session_cache_discards_legacy_gbk(tmp_path):
+    from xhs_cli.client_mixins import _load_search_session_cache_from_disk
+
+    path = tmp_path / "search_sessions.json"
+    payload = {'["测试", "general", 0]': {"search_id": "legacy"}}
+    path.write_bytes(json.dumps(payload, ensure_ascii=False).encode("gbk"))
+
     assert _load_search_session_cache_from_disk(path) == OrderedDict()
 
 

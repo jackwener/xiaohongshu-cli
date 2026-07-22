@@ -88,7 +88,7 @@ def _load_search_session_cache_from_disk(path: Path) -> OrderedDict[tuple[str, s
         return OrderedDict()
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return OrderedDict()
     if not isinstance(data, dict):
         return OrderedDict()
