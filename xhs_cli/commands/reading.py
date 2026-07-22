@@ -4,6 +4,8 @@ import click
 
 from ..command_normalizers import normalize_paged_notes
 from ..cookies import cache_note_context
+from ..error_codes import error_code_for_exception
+from ..exceptions import XhsApiError
 from ..formatter import (
     maybe_print_structured,
     print_info,
@@ -16,6 +18,7 @@ from ..formatter import (
     render_user_posts,
     render_users,
 )
+from ..formatter_normalizers import normalize_comments, normalize_hydrated_note
 from ..note_refs import resolve_note_reference, save_index_from_items, save_index_from_notes
 from ._common import exit_for_error, handle_command, run_client_action, structured_output_options
 
@@ -101,6 +104,61 @@ def read(ctx, id_or_url: str, xsec_token: str, as_json: bool, as_yaml: bool):
         ctx,
         action=_read_action,
         render=render_note,
+        as_json=as_json,
+        as_yaml=as_yaml,
+    )
+
+
+@click.command()
+@click.argument("id_or_url")
+@click.option("--xsec-token", default="", help="Security token (or reuse a cached token for this note)")
+@click.option(
+    "-c", "--comment-limit",
+    type=click.IntRange(min=0),
+    default=5,
+    show_default=True,
+    help="Maximum comments to include (0 skips comments)",
+)
+@structured_output_options
+@click.pass_context
+def hydrate(ctx, id_or_url: str, xsec_token: str, comment_limit: int, as_json: bool, as_yaml: bool):
+    """Fetch normalized note detail and a bounded comment sample."""
+    note_id, token, url_source = resolve_note_reference(id_or_url, xsec_token=xsec_token)
+    xsec_source = url_source or "pc_feed"
+    if token:
+        cache_note_context(note_id, token, xsec_source)
+
+    def _hydrate_action(client):
+        kwargs = {"xsec_token": token}
+        if url_source:
+            kwargs["xsec_source"] = url_source
+        note = normalize_hydrated_note(
+            client.get_note_detail(note_id, **kwargs),
+            note_id=note_id,
+            xsec_token=token,
+            xsec_source=xsec_source,
+        )
+        if note is None:
+            raise XhsApiError(f"Note not found: {note_id}")
+
+        comments = []
+        warnings = []
+        if comment_limit:
+            try:
+                comments = normalize_comments(client.get_comments(note_id, **kwargs))[:comment_limit]
+            except XhsApiError as exc:
+                warnings.append({
+                    "code": error_code_for_exception(exc),
+                    "message": str(exc),
+                })
+        return {"note": note, "comments": comments, "warnings": warnings}
+
+    handle_command(
+        ctx,
+        action=_hydrate_action,
+        render=lambda data: print_info(
+            f"Hydrated {data['note']['id']}: {len(data['comments'])} comments"
+        ),
         as_json=as_json,
         as_yaml=as_yaml,
     )

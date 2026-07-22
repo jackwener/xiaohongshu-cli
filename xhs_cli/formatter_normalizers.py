@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode
 
 
 def _coerce_int(value: Any, default: int = 0) -> int:
@@ -60,6 +62,81 @@ def normalize_note_detail(data: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def normalize_hydrated_note(
+    data: dict[str, Any],
+    *,
+    note_id: str,
+    xsec_token: str = "",
+    xsec_source: str = "pc_feed",
+) -> dict[str, Any] | None:
+    """Normalize note detail into a stable agent-facing shape."""
+    items = data.get("items", [])
+    if not items or not isinstance(items[0], dict):
+        return None
+
+    entry = items[0]
+    note = entry.get("note_card", {})
+    if not isinstance(note, dict):
+        return None
+    user = note.get("user", {}) if isinstance(note.get("user"), dict) else {}
+    interact = note.get("interact_info", {}) if isinstance(note.get("interact_info"), dict) else {}
+    tags = note.get("tag_list", []) if isinstance(note.get("tag_list"), list) else []
+    images = note.get("image_list", []) if isinstance(note.get("image_list"), list) else []
+    published_at = _published_at(note, entry)
+    token = xsec_token or entry.get("xsec_token") or note.get("xsec_token") or ""
+    token = str(token)
+    url = f"https://www.xiaohongshu.com/explore/{note_id}"
+    if token:
+        url += "?" + urlencode({"xsec_token": token, "xsec_source": xsec_source})
+
+    return {
+        "id": note_id,
+        "url": url,
+        "title": note.get("title") or note.get("display_title") or "Untitled",
+        "body": note.get("desc", ""),
+        "author": {
+            "id": user.get("user_id", ""),
+            "name": user.get("nickname", user.get("nick_name", "Unknown")),
+        },
+        "note_type": "video" if note.get("type") == "video" else "image",
+        "liked_count": _coerce_int(interact.get("liked_count")),
+        "collected_count": _coerce_int(interact.get("collected_count")),
+        "comment_count": _coerce_int(interact.get("comment_count")),
+        "share_count": _coerce_int(interact.get("share_count")),
+        "tags": [tag.get("name", "") for tag in tags if isinstance(tag, dict) and tag.get("name")],
+        "images": [image_url for image in images if (image_url := _image_url(image))],
+        "published_at": published_at,
+    }
+
+
+def _image_url(image: Any) -> str:
+    if not isinstance(image, dict):
+        return ""
+    candidates = [image.get("url_default"), image.get("url_pre"), image.get("url")]
+    info_list = image.get("info_list", [])
+    for info in info_list if isinstance(info_list, list) else []:
+        if isinstance(info, dict):
+            candidates.append(info.get("url"))
+    value = next((str(value).strip() for value in candidates if value), "")
+    if value.startswith("//"):
+        return f"https:{value}"
+    if value.startswith("http://"):
+        return f"https://{value.removeprefix('http://')}"
+    return value
+
+
+def _published_at(*objects: dict[str, Any]) -> str:
+    keys = ("time", "timestamp", "create_time", "ctime")
+    value = next((obj.get(key) for obj in objects for key in keys if obj.get(key)), None)
+    try:
+        timestamp = float(value)
+        while abs(timestamp) > 10_000_000_000:
+            timestamp /= 1000
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
 def normalize_note_summary(item: dict[str, Any]) -> dict[str, Any] | None:
     note_card = item.get("note_card", item)
     if not isinstance(note_card, dict):
@@ -93,6 +170,7 @@ def normalize_comments(data: dict[str, Any]) -> list[dict[str, Any]]:
             "content": comment.get("content", ""),
             "like_count": comment.get("like_count", "0"),
             "sub_comment_count": _coerce_int(comment.get("sub_comment_count", 0)),
+            "published_at": _published_at(comment),
         })
     return normalized
 

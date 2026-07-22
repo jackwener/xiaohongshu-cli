@@ -81,6 +81,7 @@ xhs topics "美食"                      # Search hashtags/topics
 # ─── Reading ──────────────────────────────────────
 xhs read 1                             # Read the 1st result from the last list command
 xhs read <note_id>                     # Read a note (API only)
+xhs hydrate 1 --yaml                   # Normalized note + bounded comment sample for agents
 xhs read "https://www.xiaohongshu.com/explore/xxx?xsec_token=yyy"  # Read by URL (uses URL token)
 xhs comments 1                         # Read comments for the 1st result from the last list command
 xhs comments "<url>"                   # View comments — paste URL to cache/reuse xsec_token
@@ -374,6 +375,7 @@ xhs topics "美食"                      # 搜索话题
 # 阅读
 xhs read 1                             # 阅读最近一次列表里的第 1 条笔记
 xhs read <note_id>                     # 阅读笔记（仅走 API）
+xhs hydrate 1 --yaml                   # 面向 Agent 的标准化笔记与有限评论样本
 xhs read "https://...?xsec_token=..."  # 粘贴网页 URL 直接阅读（使用 URL token）
 xhs comments 1                         # 查看最近一次列表里的第 1 条笔记评论
 xhs comments "<url>"                   # 查看评论 — 粘贴 URL 以缓存/复用 xsec_token

@@ -4,6 +4,7 @@ Usage:
     xhs login / status / logout
     xhs search <keyword> [--sort popular|latest] [--type video|image] [--page N]
     xhs read <id_or_url> [--xsec-token TOKEN]
+    xhs hydrate <id_or_url> [--comment-limit N]
     xhs comments <id_or_url>
     xhs user <user_id>
     xhs user-posts <user_id> [--cursor CURSOR]
@@ -79,6 +80,7 @@ cli.add_command(auth.whoami)
 
 cli.add_command(reading.search)
 cli.add_command(reading.read)
+cli.add_command(reading.hydrate)
 cli.add_command(reading.comments)
 cli.add_command(reading.sub_comments)
 cli.add_command(reading.user)

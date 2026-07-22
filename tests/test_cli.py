@@ -5,7 +5,7 @@ import yaml
 from click.testing import CliRunner
 
 from xhs_cli.cli import cli
-from xhs_cli.exceptions import NoCookieError, SessionExpiredError, UnsupportedOperationError
+from xhs_cli.exceptions import NoCookieError, SessionExpiredError, SignatureError, UnsupportedOperationError
 
 runner = CliRunner()
 
@@ -68,7 +68,7 @@ class TestCliBasic:
             # Auth
             "login", "status", "logout", "whoami",
             # Reading
-            "search", "read", "comments", "sub-comments", "user", "user-posts",
+            "search", "read", "hydrate", "comments", "sub-comments", "user", "user-posts",
             "feed", "hot", "topics", "search-user", "my-notes",
             "notifications", "unread",
             # Interactions
@@ -301,6 +301,79 @@ class TestCliBasic:
         assert called["note_id"] == "note-abc"
         assert called["kwargs"]["xsec_token"] == "token-abc"
         assert called["kwargs"]["xsec_source"] == "pc_search"
+
+    def test_hydrate_returns_stable_note_and_limited_comments(self, monkeypatch):
+        class FakeClient:
+            def get_note_detail(self, note_id, **kwargs):
+                return {
+                    "items": [{
+                        "id": note_id,
+                        "note_card": {
+                            "title": "Test Note",
+                            "desc": "body",
+                            "time": 1_700_000_000_000,
+                            "type": "video",
+                            "user": {"user_id": "u-1", "nickname": "Author"},
+                            "interact_info": {"liked_count": "12", "comment_count": "2"},
+                            "tag_list": [{"name": "AI"}],
+                            "image_list": [{"url_default": "https://example.com/1.jpg"}],
+                        },
+                    }]
+                }
+
+            def get_comments(self, note_id, **kwargs):
+                return {"comments": [
+                    {"user_info": {"nickname": "c1"}, "content": "first", "time": 1_700_000_001},
+                    {"user_info": {"nickname": "c2"}, "content": "second"},
+                ]}
+
+        monkeypatch.setattr(
+            "xhs_cli.commands._common.run_client_action",
+            lambda ctx, action: action(FakeClient()),
+        )
+
+        result = runner.invoke(cli, ["hydrate", "note-123", "--comment-limit", "1", "--yaml"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["data"]["note"] == {
+            "id": "note-123",
+            "url": "https://www.xiaohongshu.com/explore/note-123",
+            "title": "Test Note",
+            "body": "body",
+            "author": {"id": "u-1", "name": "Author"},
+            "note_type": "video",
+            "liked_count": 12,
+            "collected_count": 0,
+            "comment_count": 2,
+            "share_count": 0,
+            "tags": ["AI"],
+            "images": ["https://example.com/1.jpg"],
+            "published_at": "2023-11-14T22:13:20Z",
+        }
+        assert len(payload["data"]["comments"]) == 1
+        assert payload["data"]["comments"][0]["published_at"] == "2023-11-14T22:13:21Z"
+        assert payload["data"]["warnings"] == []
+
+    def test_hydrate_reports_comment_api_failure_as_partial_success(self, monkeypatch):
+        class FakeClient:
+            def get_note_detail(self, note_id, **kwargs):
+                return FAKE_NOTE_RESPONSE
+
+            def get_comments(self, note_id, **kwargs):
+                raise SignatureError()
+
+        monkeypatch.setattr(
+            "xhs_cli.commands._common.run_client_action",
+            lambda ctx, action: action(FakeClient()),
+        )
+
+        result = runner.invoke(cli, ["hydrate", "note-123", "--yaml"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["data"]["comments"] == []
+        assert payload["data"]["warnings"][0]["code"] == "signature_error"
 
     def test_comments_index_resolves_note_context(self, monkeypatch):
         monkeypatch.setattr(

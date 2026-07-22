@@ -86,6 +86,7 @@ Payloads live under `.data`.
 |---------|-------------|---------|
 | `xhs search <keyword>` | Search notes | `xhs search "美食" --sort popular --type video` |
 | `xhs read <id_or_url_or_index>` | Read a note by ID, URL, or short index | `xhs read 1` / `xhs read "https://...?xsec_token=xxx"` |
+| `xhs hydrate <id_or_url_or_index>` | Fetch normalized note detail and a bounded comment sample | `xhs hydrate 1 --yaml` |
 | `xhs comments <id_or_url_or_index>` | Get comments by ID, URL, or short index | `xhs comments 1` / `xhs comments "https://...?xsec_token=..."` |
 | `xhs comments <id_or_url> --all` | Get ALL comments (auto-paginate) | `xhs comments "<url>" --all --json` |
 | `xhs sub-comments <note_id> <comment_id>` | Get replies to comment | `xhs sub-comments abc 123` |
