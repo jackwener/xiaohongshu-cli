@@ -192,8 +192,10 @@ class XhsClient(
         self,
         uri: str,
         params: dict[str, str | int | list[str]] | None = None,
+        *,
+        x_rap: bool = False,
     ) -> Any:
-        sign_headers = sign_main_api("GET", uri, self.cookies, params=params)
+        sign_headers = sign_main_api("GET", uri, self.cookies, params=params, x_rap=x_rap)
         full_uri = build_get_uri(uri, params)
         url = f"{EDITH_HOST}{full_uri}"
         logger.debug("GET %s", url)
@@ -205,8 +207,10 @@ class XhsClient(
         uri: str,
         data: dict[str, Any],
         header_overrides: dict[str, str] | None = None,
+        *,
+        x_rap: bool = False,
     ) -> Any:
-        sign_headers = sign_main_api("POST", uri, self.cookies, payload=data)
+        sign_headers = sign_main_api("POST", uri, self.cookies, payload=data, x_rap=x_rap)
         url = f"{EDITH_HOST}{uri}"
         headers = {**self._base_headers(), **sign_headers}
         if header_overrides:

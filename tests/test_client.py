@@ -132,12 +132,12 @@ class TestReadingEndpointBehavior:
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE", OrderedDict())
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_LOADED", True)
 
-        def fake_get(self, uri, params=None):
-            calls.append(("GET", uri, params))
+        def fake_get(self, uri, params=None, **kwargs):
+            calls.append(("GET", uri, params, kwargs.get("x_rap")))
             return {"ok": True}
 
-        def fake_post(self, uri, data, header_overrides=None):
-            calls.append(("POST", uri, data))
+        def fake_post(self, uri, data, header_overrides=None, **kwargs):
+            calls.append(("POST", uri, data, kwargs.get("x_rap")))
             if uri == "/api/sns/web/v1/search/notes":
                 return {"items": [], "has_more": False}
             return {"ok": True}
@@ -157,6 +157,7 @@ class TestReadingEndpointBehavior:
             "/api/sns/web/v1/search/notes",
             "/api/sns/web/v1/search/recommend",
         ]
+        assert all(call[3] is True for call in calls)
 
         notes_payload = calls[2][2]
         assert notes_payload["page"] == 2
@@ -169,11 +170,11 @@ class TestReadingEndpointBehavior:
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE", OrderedDict())
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_LOADED", True)
 
-        def fake_get(self, uri, params=None):
+        def fake_get(self, uri, params=None, **kwargs):
             calls.append(("GET", uri, params))
             return {"ok": True}
 
-        def fake_post(self, uri, data, header_overrides=None):
+        def fake_post(self, uri, data, header_overrides=None, **kwargs):
             calls.append(("POST", uri, data))
             if uri == "/api/sns/web/v1/search/notes":
                 return {"items": [], "has_more": False}
@@ -209,11 +210,11 @@ class TestReadingEndpointBehavior:
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_LOADED", False)
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_PATH", None)
 
-        def fake_get_first(self, uri, params=None):
+        def fake_get_first(self, uri, params=None, **kwargs):
             first_calls.append(("GET", uri, params))
             return {"ok": True}
 
-        def fake_post_first(self, uri, data, header_overrides=None):
+        def fake_post_first(self, uri, data, header_overrides=None, **kwargs):
             first_calls.append(("POST", uri, data))
             if uri == "/api/sns/web/v1/search/notes":
                 return {"items": [], "has_more": False}
@@ -232,11 +233,11 @@ class TestReadingEndpointBehavior:
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_LOADED", False)
         monkeypatch.setattr("xhs_cli.client_mixins._SEARCH_SESSION_CACHE_PATH", None)
 
-        def fake_get_second(self, uri, params=None):
+        def fake_get_second(self, uri, params=None, **kwargs):
             second_calls.append(("GET", uri, params))
             return {"ok": True}
 
-        def fake_post_second(self, uri, data, header_overrides=None):
+        def fake_post_second(self, uri, data, header_overrides=None, **kwargs):
             second_calls.append(("POST", uri, data))
             if uri == "/api/sns/web/v1/search/notes":
                 return {"items": [], "has_more": False}

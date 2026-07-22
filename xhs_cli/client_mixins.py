@@ -288,11 +288,11 @@ class ReadingEndpointsMixin:
                     "search_id": search_id,
                     "biz_type": "web_search_user",
                     "request_id": request_id,
-                })
+                }, x_rap=True)
                 self._main_api_get("/api/sns/web/v1/search/filter", {
                     "keyword": keyword,
                     "search_id": search_id,
-                })
+                }, x_rap=True)
             except XhsApiError as exc:
                 logger.debug("Search prewarm failed, continuing with search/notes: %s", exc)
 
@@ -307,10 +307,10 @@ class ReadingEndpointsMixin:
             "filters": _SEARCH_DEFAULT_FILTERS,
             "geo": "",
             "image_formats": ["jpg", "webp", "avif"],
-        })
+        }, x_rap=True)
         if is_new_session:
             try:
-                self._main_api_get("/api/sns/web/v1/search/recommend", {"keyword": keyword})
+                self._main_api_get("/api/sns/web/v1/search/recommend", {"keyword": keyword}, x_rap=True)
             except XhsApiError as exc:
                 logger.debug("Search recommend prefetch failed: %s", exc)
         return result
@@ -329,7 +329,7 @@ class ReadingEndpointsMixin:
             "extra": {"need_body_topic": "1"},
             "xsec_source": xsec_source,
             "xsec_token": xsec_token,
-        })
+        }, x_rap=True)
 
     def get_note_from_html(
         self,
@@ -380,7 +380,7 @@ class ReadingEndpointsMixin:
             "search_key": "",
             "need_num": 40,
             "image_scenes": ["FD_PRV_WEBP", "FD_WM_WEBP"],
-        })
+        }, x_rap=True)
 
     def get_hot_feed(self, category: str = "homefeed.fashion_v3") -> dict[str, Any]:
         return self.get_home_feed(category=category)

@@ -13,7 +13,7 @@ USER_AGENT = (
     f"Chrome/{CHROME_VERSION}.0.0.0 Safari/537.36"
 )
 
-SDK_VERSION = "4.2.6"
+SDK_VERSION = "4.3.5"
 APP_ID = "xhs-pc-web"
 PLATFORM = "macOS"
 

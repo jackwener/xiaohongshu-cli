@@ -60,6 +60,7 @@ def sign_main_api(
     params: dict[str, str | int | list[str]] | None = None,
     payload: dict | None = None,
     timestamp: float | None = None,
+    x_rap: bool = False,
 ) -> dict[str, str]:
     """
     Generate all signing headers for a main API (edith.xiaohongshu.com) request.
@@ -68,10 +69,10 @@ def sign_main_api(
     """
     if method.upper() == "GET":
         return _xhshow.sign_headers_get(
-            uri, cookies, params=params, timestamp=timestamp, session=_session,
+            uri, cookies, params=params, timestamp=timestamp, session=_session, x_rap=x_rap,
         )
     return _xhshow.sign_headers_post(
-        uri, cookies, payload=payload, timestamp=timestamp, session=_session,
+        uri, cookies, payload=payload, timestamp=timestamp, session=_session, x_rap=x_rap,
     )
 
 

@@ -67,6 +67,17 @@ class TestSignMainApi:
         )
         assert headers["x-s"].startswith("XYS_")
 
+    def test_x_rap_header(self):
+        cookies = {"a1": "test_a1_value_1234567890abcdef1234567890abcdef1234567890ab"}
+        headers = sign_main_api(
+            "POST",
+            "/api/sns/web/v1/search/notes",
+            cookies,
+            payload={"keyword": "test", "page": 1},
+            x_rap=True,
+        )
+        assert "x-rap-param" in headers
+
     def test_missing_a1_raises(self):
         with pytest.raises(ValueError, match="Missing 'a1'"):
             sign_main_api("GET", "/api/test", {})
@@ -78,4 +89,3 @@ class TestSignMainApi:
             params={"user_id": "12345"},
         )
         assert headers["x-s"].startswith("XYS_")
-
