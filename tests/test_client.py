@@ -1,6 +1,7 @@
 """Unit tests for XHS client request payloads, cookies, and endpoint selection."""
 
 from collections import OrderedDict
+from pathlib import Path
 
 import httpx
 import pytest
@@ -8,6 +9,21 @@ import pytest
 from xhs_cli.client import XhsClient
 from xhs_cli.cookies import cache_note_context, get_cached_note_context
 from xhs_cli.exceptions import UnsupportedOperationError, XhsApiError
+
+
+def test_search_session_cache_reads_utf8(tmp_path, monkeypatch):
+    from xhs_cli.client_mixins import _load_search_session_cache_from_disk
+
+    path = tmp_path / "search_sessions.json"
+    path.touch()
+    original_read_text = Path.read_text
+
+    def checked_read_text(self, *args, **kwargs):
+        assert kwargs.get("encoding") == "utf-8"
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", checked_read_text)
+    assert _load_search_session_cache_from_disk(path) == OrderedDict()
 
 
 class TestFavorites:
