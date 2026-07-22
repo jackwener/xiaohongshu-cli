@@ -41,7 +41,7 @@ def _cookie_check() -> dict[str, Any]:
         return result
 
     try:
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         mode = stat.S_IMODE(path.stat().st_mode)
         saved_at = payload.get("saved_at") if isinstance(payload, dict) else None
         result.update({
@@ -73,6 +73,13 @@ def collect_diagnostics(*, check_api: bool = False) -> dict[str, Any]:
         if not cookies:
             api = {"status": "skipped", "reason": "no saved credentials"}
         else:
+            from ..qr_login import BROWSER_EXPORT_COOKIE_NAMES
+
+            cookies = {
+                name: value
+                for name, value in cookies.items()
+                if name in BROWSER_EXPORT_COOKIE_NAMES and isinstance(value, str)
+            }
             try:
                 with XhsClient(cookies) as client:
                     client.get_self_info()
@@ -136,7 +143,7 @@ def support_bundle(output: Path, network: bool, as_json: bool, as_yaml: bool):
     report = success_payload(collect_diagnostics(check_api=network))
     output.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as file:
+    with os.fdopen(fd, "w", encoding="utf-8") as file:
         json.dump(report, file, ensure_ascii=False, indent=2)
         file.write("\n")
     output.chmod(0o600)
