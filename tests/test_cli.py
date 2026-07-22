@@ -1,5 +1,7 @@
 """Tests for CLI commands using Click's test runner."""
 
+from contextlib import contextmanager
+
 import pytest
 import yaml
 from click.testing import CliRunner
@@ -157,6 +159,26 @@ class TestCliBasic:
         assert payload["ok"] is False
         assert payload["error"]["code"] == "not_authenticated"
 
+    def test_non_idempotent_action_is_not_replayed(self, monkeypatch):
+        from xhs_cli.commands import _common
+
+        calls = []
+
+        @contextmanager
+        def fake_get_client(ctx, force_refresh=False):
+            yield object()
+
+        def action(_client):
+            calls.append("called")
+            raise SessionExpiredError()
+
+        monkeypatch.setattr(_common, "get_client", fake_get_client)
+
+        with pytest.raises(SessionExpiredError):
+            _common.run_client_action(None, action, retry_on_session_expiry=False)
+
+        assert calls == ["called"]
+
     def test_logout_supports_structured_output(self):
         from xhs_cli.commands import auth
 
@@ -175,7 +197,7 @@ class TestCliBasic:
     def test_delete_reports_unsupported_operation(self, monkeypatch):
         monkeypatch.setattr(
             "xhs_cli.commands.creator.run_client_action",
-            lambda ctx, action: (_ for _ in ()).throw(
+            lambda ctx, action, **kwargs: (_ for _ in ()).throw(
                 UnsupportedOperationError("Delete note is currently unavailable from the public web API.")
             ),
         )
@@ -414,7 +436,8 @@ class TestCliBasic:
 
                 return _call
 
-        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+        def fake_handle_command(ctx, action, render, as_json, as_yaml, retry_on_session_expiry=True):
+            assert retry_on_session_expiry is False
             action(FakeClient())
             return None
 
@@ -443,7 +466,8 @@ class TestCliBasic:
                 called["content"] = content
                 return {"ok": True}
 
-        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+        def fake_handle_command(ctx, action, render, as_json, as_yaml, retry_on_session_expiry=True):
+            assert retry_on_session_expiry is False
             action(FakeClient())
             return None
 
@@ -473,7 +497,8 @@ class TestCliBasic:
                 called["content"] = content
                 return {"ok": True}
 
-        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+        def fake_handle_command(ctx, action, render, as_json, as_yaml, retry_on_session_expiry=True):
+            assert retry_on_session_expiry is False
             action(FakeClient())
             return None
 

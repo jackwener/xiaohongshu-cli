@@ -81,6 +81,7 @@ def post(
         render=lambda _data: print_success(f"Note published: {title}" + (" (private)" if is_private else "")),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -118,7 +119,11 @@ def delete(ctx, id_or_url: str, as_json: bool, as_yaml: bool, yes: bool):
         click.confirm(f"Delete note {note_id}?", abort=True)
 
     try:
-        data = run_client_action(ctx, lambda client: client.delete_note(note_id))
+        data = run_client_action(
+            ctx,
+            lambda client: client.delete_note(note_id),
+            retry_on_session_expiry=False,
+        )
         if not maybe_print_structured(data, as_json=as_json, as_yaml=as_yaml):
             print_success(f"Deleted note {note_id}")
     except Exception as exc:

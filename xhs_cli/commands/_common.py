@@ -37,12 +37,19 @@ def get_client(ctx, *, force_refresh: bool = False) -> XhsClient:
     return XhsClient(cookies)
 
 
-def run_client_action(ctx, action: Callable[[XhsClient], T]) -> T:
-    """Run an authenticated client action and retry once with fresh browser cookies."""
+def run_client_action(
+    ctx,
+    action: Callable[[XhsClient], T],
+    *,
+    retry_on_session_expiry: bool = True,
+) -> T:
+    """Run an authenticated action, optionally retrying once with fresh cookies."""
     try:
         with get_client(ctx) as client:
             return action(client)
     except SessionExpiredError as exc:
+        if not retry_on_session_expiry:
+            raise
         try:
             with get_client(ctx, force_refresh=True) as client:
                 return action(client)
@@ -58,12 +65,17 @@ def handle_command(
     as_json: bool,
     as_yaml: bool,
     prefix: str | None = None,
+    retry_on_session_expiry: bool = True,
 ):
     """Run a client action, emit structured output if requested, else render."""
     from ..formatter import maybe_print_structured
 
     try:
-        data = run_client_action(ctx, action)
+        data = run_client_action(
+            ctx,
+            action,
+            retry_on_session_expiry=retry_on_session_expiry,
+        )
         if not maybe_print_structured(data, as_json=as_json, as_yaml=as_yaml) and render:
             render(data)
         return data

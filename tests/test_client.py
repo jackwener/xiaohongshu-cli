@@ -101,6 +101,35 @@ class TestTransportCookies:
         assert client.cookies["web_session_sec"] == "real-sec"
 
 
+class TestTransportRetries:
+    @pytest.mark.parametrize(
+        ("method", "expected_attempts"),
+        [("GET", 3), ("PUT", 3), ("POST", 1)],
+    )
+    def test_only_idempotent_methods_retry_network_errors(self, monkeypatch, method, expected_attempts):
+        attempts = 0
+
+        class _FailingHttpClient:
+            def request(self, request_method, url, **kwargs):
+                nonlocal attempts
+                attempts += 1
+                raise httpx.ReadTimeout("response lost", request=httpx.Request(request_method, url))
+
+            def close(self):
+                return None
+
+        monkeypatch.setattr("xhs_cli.client.time.sleep", lambda _seconds: None)
+        client = XhsClient({"a1": "cookie"}, request_delay=0, max_retries=3)
+        client._http = _FailingHttpClient()
+        try:
+            with pytest.raises(XhsApiError, match=rf"after {expected_attempts} attempt"):
+                client._request_with_retry(method, "https://edith.xiaohongshu.com/api/test")
+        finally:
+            client.close()
+
+        assert attempts == expected_attempts
+
+
 class TestReadingEndpointBehavior:
     def test_get_note_detail_prefers_cached_xsec_source(self, monkeypatch):
         captured = {}

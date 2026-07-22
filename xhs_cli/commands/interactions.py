@@ -30,6 +30,7 @@ def like(ctx, id_or_url: str, undo: bool, as_json: bool, as_yaml: bool):
         render=lambda _data: print_success(f"{'Unliked' if undo else 'Liked'} note {note_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -46,6 +47,7 @@ def favorite(ctx, id_or_url: str, as_json: bool, as_yaml: bool):
         render=lambda _data: print_success(f"Favorited note {note_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -62,6 +64,7 @@ def unfavorite(ctx, id_or_url: str, as_json: bool, as_yaml: bool):
         render=lambda _data: print_success(f"Unfavorited note {note_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -79,6 +82,7 @@ def comment(ctx, id_or_url: str, content: str, as_json: bool, as_yaml: bool):
         render=lambda _data: print_success(f"Comment posted on {note_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -97,6 +101,7 @@ def reply(ctx, id_or_url: str, comment_id: str, content: str, as_json: bool, as_
         render=lambda _data: print_success(f"Reply posted on comment {comment_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -117,4 +122,5 @@ def delete_comment(ctx, note_id: str, comment_id: str, as_json: bool, as_yaml: b
         render=lambda _data: print_success(f"Deleted comment {comment_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )

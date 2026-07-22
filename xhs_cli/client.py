@@ -160,33 +160,39 @@ class XhsClient(
     def _request_with_retry(self, method: str, url: str, **kwargs) -> httpx.Response:
         self._rate_limit_delay()
         last_exc: Exception | None = None
+        idempotent = method.upper() in {"GET", "HEAD", "OPTIONS", "PUT", "DELETE"}
+        attempts = max(1, self._max_retries) if idempotent else 1
 
-        for attempt in range(self._max_retries):
+        for attempt in range(attempts):
             try:
                 resp = self._http.request(method, url, **kwargs)
                 self._merge_response_cookies(resp)
                 self._mark_request()
                 if resp.status_code in (429, 500, 502, 503, 504):
+                    if attempt + 1 == attempts:
+                        break
                     wait = (2 ** attempt) + random.uniform(0, 1)
                     logger.warning(
                         "HTTP %d from %s, retrying in %.1fs (attempt %d/%d)",
-                        resp.status_code, url[:80], wait, attempt + 1, self._max_retries,
+                        resp.status_code, url[:80], wait, attempt + 1, attempts,
                     )
                     time.sleep(wait)
                     continue
                 return resp
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
                 last_exc = exc
+                if attempt + 1 == attempts:
+                    break
                 wait = (2 ** attempt) + random.uniform(0, 1)
                 logger.warning(
                     "Network error: %s, retrying in %.1fs (attempt %d/%d)",
-                    exc, wait, attempt + 1, self._max_retries,
+                    exc, wait, attempt + 1, attempts,
                 )
                 time.sleep(wait)
 
         if last_exc:
-            raise XhsApiError(f"Request failed after {self._max_retries} retries: {last_exc}") from last_exc
-        raise XhsApiError(f"Request failed after {self._max_retries} retries: HTTP {resp.status_code}")
+            raise XhsApiError(f"Request failed after {attempts} attempt(s): {last_exc}") from last_exc
+        raise XhsApiError(f"Request failed after {attempts} attempt(s): HTTP {resp.status_code}")
 
     def _main_api_get(
         self,

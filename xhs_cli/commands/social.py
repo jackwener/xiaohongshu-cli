@@ -60,6 +60,7 @@ def follow(ctx, user_id: str, as_json: bool, as_yaml: bool):
         render=lambda _data: print_success(f"Followed user {user_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -75,6 +76,7 @@ def unfollow(ctx, user_id: str, as_json: bool, as_yaml: bool):
         render=lambda _data: print_success(f"Unfollowed user {user_id}"),
         as_json=as_json,
         as_yaml=as_yaml,
+        retry_on_session_expiry=False,
     )
 
 
@@ -104,4 +106,3 @@ def likes(ctx, user_id: str | None, cursor: str, as_json: bool, as_yaml: bool):
         fetcher=lambda client, uid, cur: client.get_user_likes(uid, cursor=cur),
         user_id=user_id, cursor=cursor, as_json=as_json, as_yaml=as_yaml,
     )
-
