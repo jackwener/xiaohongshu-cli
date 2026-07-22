@@ -15,6 +15,7 @@ from typing import Any
 
 from .constants import CREATOR_HOST, HOME_URL, UPLOAD_HOST, USER_AGENT
 from .cookies import (
+    _write_secure_json,
     cache_note_context,
     cookies_to_string,
     get_cached_note_context,
@@ -117,8 +118,7 @@ def _save_search_session_cache(path: Path) -> None:
         )
         for key, value in _SEARCH_SESSION_CACHE.items()
     )
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    path.chmod(0o600)
+    _write_secure_json(path, payload, ensure_ascii=False)
 
 
 def _ensure_search_session_cache_loaded() -> None:

@@ -5,8 +5,10 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import OrderedDict
@@ -64,12 +66,32 @@ def load_saved_cookies() -> dict[str, str] | None:
     return None
 
 
+def _write_secure_json(
+    path: Path,
+    payload: Any,
+    *,
+    durable: bool = False,
+    ensure_ascii: bool = True,
+) -> None:
+    """Atomically write JSON through a mode-0600 temporary file."""
+    fd, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as temp_file:
+            json.dump(payload, temp_file, indent=2, ensure_ascii=ensure_ascii)
+            if durable:
+                temp_file.flush()
+                os.fsync(temp_file.fileno())
+        os.replace(temp_path, path)
+    except BaseException:
+        Path(temp_path).unlink(missing_ok=True)
+        raise
+
+
 def save_cookies(cookies: dict[str, str]) -> None:
     """Save cookies to local storage with restricted permissions and TTL timestamp."""
     cookie_path = get_cookie_path()
     payload = {**cookies, "saved_at": time.time()}
-    cookie_path.write_text(json.dumps(payload, indent=2))
-    cookie_path.chmod(0o600)
+    _write_secure_json(cookie_path, payload, durable=True)
     logger.debug("Saved cookies to %s", cookie_path)
 
 
@@ -174,8 +196,7 @@ def save_token_cache(cache: dict[str, dict[str, Any]]) -> None:
     ))
 
     with _TOKEN_CACHE_LOCK:
-        cache_path.write_text(json.dumps(normalized, indent=2))
-        cache_path.chmod(0o600)
+        _write_secure_json(cache_path, normalized)
         _TOKEN_CACHE_MEMORY = normalized
         _TOKEN_CACHE_PATH = cache_path
 
@@ -268,8 +289,7 @@ def save_note_index(items: list[dict[str, str]]) -> None:
         for entry in (_normalize_index_entry(item) for item in items)
         if entry
     ]
-    path.write_text(json.dumps(normalized, indent=2, ensure_ascii=False))
-    path.chmod(0o600)
+    _write_secure_json(path, normalized, ensure_ascii=False)
     logger.debug("Saved note index with %d entries", len(normalized))
 
 

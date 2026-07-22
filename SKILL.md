@@ -101,6 +101,8 @@ Payloads live under `.data`.
 
 ### Interactions (Write)
 
+Before running any command that changes account state, show the intended action and target, then obtain the user's explicit confirmation. A general request to browse, research, or analyze is not authorization to write. Never use `-y` without that confirmation. This applies to likes, favorites, comments, replies, follows, posts, and deletions, including undo/unfollow operations.
+
 | Command | Description | Example |
 |---------|-------------|---------|
 | `xhs like <id_or_url_or_index>` | Like a note | `xhs like 1` / `xhs like abc123` |
@@ -143,6 +145,7 @@ Payloads live under `.data`.
 ```bash
 NOTE_ID=$(xhs search "美食推荐" --json | jq -r '.data.items[0].id')
 xhs read "$NOTE_ID" --json | jq '.data'
+# Run only after the user explicitly confirms this like:
 xhs like "$NOTE_ID"
 ```
 
@@ -156,6 +159,7 @@ xhs hot -c food --json | jq '.data.items[:5] | .[].note_card | {title, likes: .i
 
 ```bash
 xhs user 5f2e123 --json | jq '.data.basic_info | {nickname, user_id}'
+# Run only after the user explicitly confirms this follow:
 xhs follow 5f2e123
 ```
 
@@ -185,6 +189,7 @@ xhs feed --yaml
 xhs search "旅行"
 xhs read 1
 xhs comments 1
+# Run each command below only after the user explicitly confirms its exact action:
 xhs like 1
 xhs favorite 1
 xhs comment 1 -c "收藏了"
@@ -245,6 +250,7 @@ Structured error codes returned in the `error.code` field:
 
 ## Safety Notes
 
+- Obtain explicit user confirmation immediately before every account write operation: like/unlike, favorite/unfavorite, comment/reply/delete-comment, follow/unfollow, post, or delete.
 - Do not ask users to share raw cookie values in chat logs.
 - Prefer local browser cookie extraction over manual secret copy/paste.
 - If auth fails, ask the user to re-login via `xhs login`.

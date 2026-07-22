@@ -51,6 +51,21 @@ class TestSaveCookies:
         stat = cookie_file.stat()
         assert stat.st_mode & 0o777 == 0o600
 
+    def test_failed_replace_preserves_existing_file(self, tmp_config_dir, monkeypatch):
+        cookie_file = tmp_config_dir / "cookies.json"
+        cookie_file.write_text('{"a1":"existing"}')
+
+        def fail_replace(*_):
+            raise OSError
+
+        monkeypatch.setattr("xhs_cli.cookies.os.replace", fail_replace)
+
+        with pytest.raises(OSError):
+            save_cookies({"a1": "replacement"})
+
+        assert cookie_file.read_text() == '{"a1":"existing"}'
+        assert list(tmp_config_dir.glob(".cookies.json.*")) == []
+
 
 class TestLoadSavedCookies:
     def test_no_file(self, tmp_config_dir):

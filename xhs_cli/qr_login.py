@@ -226,16 +226,11 @@ def _complete_confirmed_session(
             )
         logger.debug(
             "QR post-confirm completion attempt=%d confirmed_user_id=%s "
-            "completion_user_id=%s self_info_user_id=%s cookies=%s data=%s",
+            "completion_user_id=%s self_info_user_id=%s",
             attempt + 1,
             confirmed_user_id,
             completed_user_id,
             self_info_user_id,
-            {
-                "web_session": client.cookies.get("web_session"),
-                "web_session_sec": client.cookies.get("web_session_sec"),
-            },
-            completion_data,
         )
         if completed_user_id and completed_user_id == confirmed_user_id:
             return completion_data
@@ -248,8 +243,7 @@ def _complete_confirmed_session(
         "QR login confirmed, but completion never returned the confirmed user session. "
         f"expected={confirmed_user_id} "
         f"completion_user={_resolved_user_id(last_data) or 'unknown'} "
-        f"self_info_user={last_self_info_user_id or 'unknown'} "
-        f"completion_data={last_data}"
+        f"self_info_user={last_self_info_user_id or 'unknown'}"
     )
 
 
@@ -431,7 +425,7 @@ def _browser_assisted_qrcode_login(
         if missing:
             raise XhsApiError(
                 "Browser-assisted QR login succeeded, but exported cookies were incomplete: "
-                f"missing={', '.join(missing)} completion_data={completion_data}"
+                f"missing={', '.join(missing)}"
             )
 
         save_cookies(cookies)
@@ -459,11 +453,7 @@ def _http_qrcode_login(
         try:
             activate_data = client.login_activate()
             _apply_session_cookies(client, activate_data)
-            guest_session = activate_data.get("session", "")
-            logger.debug(
-                "Initial activate: session=%s user_id=%s",
-                guest_session, activate_data.get("user_id"),
-            )
+            logger.debug("Initial activate: user_id=%s", activate_data.get("user_id"))
         except Exception as exc:
             logger.debug("Initial activate failed (non-fatal): %s", exc)
 
@@ -471,8 +461,6 @@ def _http_qrcode_login(
         qr_id = qr_data["qr_id"]
         code = qr_data["code"]
         qr_url = qr_data["url"]
-
-        logger.debug("QR created: qr_id=%s, code=%s", qr_id, code)
 
         _emit_status(on_status, "\n📱 Scan the QR code below with the Xiaohongshu app:\n")
         if not _display_qr_in_terminal(qr_url):
@@ -499,7 +487,7 @@ def _http_qrcode_login(
                 consecutive_errors = 0
 
             code_status = status_data.get("codeStatus", -1)
-            logger.debug("QR poll: codeStatus=%s data=%s", code_status, status_data)
+            logger.debug("QR poll: codeStatus=%s", code_status)
 
             if code_status != last_status:
                 last_status = code_status
