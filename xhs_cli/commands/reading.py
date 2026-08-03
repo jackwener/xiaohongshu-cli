@@ -229,13 +229,27 @@ def topics(ctx, keyword: str, as_json: bool, as_yaml: bool):
 @click.argument("note_id")
 @click.argument("comment_id")
 @click.option("--cursor", default="", help="Pagination cursor")
+@click.option("--xsec-token", default="", help="Security token")
 @structured_output_options
 @click.pass_context
-def sub_comments(ctx, note_id: str, comment_id: str, cursor: str, as_json: bool, as_yaml: bool):
+def sub_comments(
+    ctx,
+    note_id: str,
+    comment_id: str,
+    cursor: str,
+    xsec_token: str,
+    as_json: bool,
+    as_yaml: bool,
+):
     """View replies to a specific comment."""
     handle_command(
         ctx,
-        action=lambda client: client.get_sub_comments(note_id, comment_id, cursor=cursor),
+        action=lambda client: client.get_sub_comments(
+            note_id,
+            comment_id,
+            cursor=cursor,
+            xsec_token=xsec_token,
+        ),
         render=render_comments,
         as_json=as_json,
         as_yaml=as_yaml,

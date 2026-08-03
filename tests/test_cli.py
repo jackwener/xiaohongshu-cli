@@ -333,6 +333,41 @@ class TestCliBasic:
         assert called["kwargs"]["xsec_token"] == "token-abc"
         assert called["kwargs"]["xsec_source"] == "pc_search"
 
+    def test_sub_comments_passes_xsec_token(self, monkeypatch):
+        called = {}
+
+        class FakeClient:
+            def get_sub_comments(self, note_id, comment_id, cursor="", xsec_token=""):
+                called["note_id"] = note_id
+                called["comment_id"] = comment_id
+                called["cursor"] = cursor
+                called["xsec_token"] = xsec_token
+                return {"comments": []}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            action(FakeClient())
+            return None
+
+        monkeypatch.setattr("xhs_cli.commands.reading.handle_command", fake_handle_command)
+
+        result = runner.invoke(cli, [
+            "sub-comments",
+            "note-123",
+            "comment-456",
+            "--cursor",
+            "cursor-789",
+            "--xsec-token",
+            "synthetic-token",
+        ])
+
+        assert result.exit_code == 0
+        assert called == {
+            "note_id": "note-123",
+            "comment_id": "comment-456",
+            "cursor": "cursor-789",
+            "xsec_token": "synthetic-token",
+        }
+
     def test_read_index_not_found_returns_usage_error(self, monkeypatch):
         monkeypatch.setattr("xhs_cli.note_refs.get_note_by_index", lambda idx: None)
 

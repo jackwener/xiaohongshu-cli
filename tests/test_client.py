@@ -102,6 +102,41 @@ class TestTransportCookies:
 
 
 class TestReadingEndpointBehavior:
+    def test_get_sub_comments_sends_browser_query_parameters(self, monkeypatch):
+        captured = {}
+
+        def fake_get(self, uri, params=None):
+            captured["uri"] = uri
+            captured["params"] = params
+            return {"comments": []}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_sub_comments(
+                "note-123",
+                "comment-456",
+                cursor="cursor-789",
+                xsec_token="synthetic-token",
+            )
+        finally:
+            client.close()
+
+        assert result == {"comments": []}
+        assert captured == {
+            "uri": "/api/sns/web/v2/comment/sub/page",
+            "params": {
+                "note_id": "note-123",
+                "root_comment_id": "comment-456",
+                "num": 30,
+                "cursor": "cursor-789",
+                "image_formats": "jpg,webp,avif",
+                "top_comment_id": "",
+                "xsec_token": "synthetic-token",
+            },
+        }
+
     def test_get_note_detail_prefers_cached_xsec_source(self, monkeypatch):
         captured = {}
 
