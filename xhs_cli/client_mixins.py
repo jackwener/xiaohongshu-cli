@@ -472,12 +472,16 @@ class ReadingEndpointsMixin:
         root_comment_id: str,
         num: int = 30,
         cursor: str = "",
+        xsec_token: str = "",
     ) -> Any:
         return self._main_api_get("/api/sns/web/v2/comment/sub/page", {
             "note_id": note_id,
             "root_comment_id": root_comment_id,
             "num": num,
             "cursor": cursor,
+            "image_formats": "jpg,webp,avif",
+            "top_comment_id": "",
+            "xsec_token": xsec_token,
         })
 
 
