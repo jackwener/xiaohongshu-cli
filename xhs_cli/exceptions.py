@@ -33,6 +33,13 @@ class IpBlockedError(XhsApiError):
         super().__init__("IP blocked by XHS — try a different network", code=300012)
 
 
+class RateLimitedError(XhsApiError):
+    """Raised when the local write throttle rejects a sensitive operation."""
+
+    def __init__(self, message: str):
+        super().__init__(message, code="rate_limited")
+
+
 class SignatureError(XhsApiError):
     """Raised when signature verification fails."""
 

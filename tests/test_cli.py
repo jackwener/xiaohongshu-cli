@@ -5,7 +5,7 @@ import yaml
 from click.testing import CliRunner
 
 from xhs_cli.cli import cli
-from xhs_cli.exceptions import NoCookieError, SessionExpiredError, UnsupportedOperationError
+from xhs_cli.exceptions import NoCookieError, RateLimitedError, SessionExpiredError, UnsupportedOperationError
 
 runner = CliRunner()
 
@@ -71,6 +71,8 @@ class TestCliBasic:
             "search", "read", "comments", "sub-comments", "user", "user-posts",
             "feed", "hot", "topics", "search-user", "my-notes",
             "notifications", "unread",
+            # Messages
+            "chats", "messages", "send",
             # Interactions
             "like", "favorite", "unfavorite", "comment", "reply", "delete-comment",
             # Social
@@ -171,6 +173,34 @@ class TestCliBasic:
         payload = yaml.safe_load(result.output)
         assert payload["ok"] is True
         assert payload["data"]["logged_out"] is True
+
+    def test_send_emits_structured_payload(self, monkeypatch):
+        monkeypatch.setenv("OUTPUT", "auto")
+        monkeypatch.setattr(
+            "xhs_cli.commands._common.run_client_action",
+            lambda ctx, action: {"mid": "m-1", "receiver_id": "peer-1", "response": {"code": 0}},
+        )
+
+        result = runner.invoke(cli, ["send", "peer-1", "-c", "hi", "--json"])
+
+        assert result.exit_code == 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is True
+        assert payload["data"]["receiver_id"] == "peer-1"
+        assert payload["data"]["mid"] == "m-1"
+
+    def test_send_maps_throttle_to_rate_limited(self, monkeypatch):
+        def fake_run_client_action(ctx, action):
+            raise RateLimitedError("too fast")
+
+        monkeypatch.setattr("xhs_cli.commands._common.run_client_action", fake_run_client_action)
+
+        result = runner.invoke(cli, ["send", "peer-1", "-c", "hi", "--yaml"])
+
+        assert result.exit_code != 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "rate_limited"
 
     def test_delete_reports_unsupported_operation(self, monkeypatch):
         monkeypatch.setattr(

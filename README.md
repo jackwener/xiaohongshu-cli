@@ -25,6 +25,7 @@ A CLI for Xiaohongshu (小红书) — search, read, interact, and post via rever
 - 👥 **Social** — follow/unfollow, favorites
 - 👍 **Interactions** — like, favorite, comment, reply, delete
 - ✍️ **Creator** — post image notes, my-notes list, delete
+- 💬 **Direct messages** — conversation list, history, and send (`xhs chats` / `xhs messages` / `xhs send`)
 - 🔔 **Notifications** — unread count, mentions, likes, new followers
 - 🛡️ **Anti-detection** — consistent macOS Chrome fingerprint, `sec-ch-ua` alignment, session-stable browser identity, Gaussian jitter, captcha cooldown, exponential backoff
 - 📊 **Structured output** — commands support `--yaml` and `--json`; non-TTY stdout defaults to YAML
@@ -141,6 +142,9 @@ xhs unread                             # Unread counts (likes, mentions, follows
 xhs notifications                      # 评论和@ notifications
 xhs notifications --type likes        # 赞和收藏 notifications
 xhs notifications --type connections   # 新增关注 notifications
+xhs chats                              # Direct-message conversations (with unread)
+xhs messages <user_id>                 # Read one conversation's history
+xhs send <user_id> -c "你好"           # Send a direct message
 
 ```
 
@@ -174,6 +178,7 @@ After any listing command such as `search`, `feed`, `hot`, `user-posts`, `favori
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OUTPUT` | `auto` | Output format: `json`, `yaml`, `rich`, or `auto` (→ YAML when non-TTY) |
+| `XHS_WRITE_RPM` | `1` | Max direct messages per minute (cross-process throttle); `0` disables |
 ## Rate Limiting & Anti-Detection
 
 xiaohongshu-cli includes comprehensive anti-risk-control measures designed to minimize detection:
@@ -191,6 +196,13 @@ xiaohongshu-cli includes comprehensive anti-risk-control measures designed to mi
 ### Captcha Cooldown
 - **Progressive backoff**: On captcha trigger (HTTP 461/471), automatically sleeps 5→10→20→30 seconds with increasing delays
 - **Adaptive rate limiting**: Request delay is permanently doubled after a captcha event to reduce future risk
+
+### Write Throttle (Direct Messages)
+Direct messages are more sensitive than reads (roughly ten sends can trigger a captcha), so
+`xhs send` is gated by a cross-process token bucket: **1 write/minute by default**, persisted at
+`~/.xiaohongshu-cli/limiter.json`. Tune it with `XHS_WRITE_RPM=<n>`, or set `XHS_WRITE_RPM=0`
+to disable throttling. When the budget is exhausted the command fails with the `rate_limited`
+error code instead of silently hammering the API.
 
 ### Signed Requests
 - All API calls use `x-s` / `x-s-common` / `x-t` signatures (reverse-engineered from web client)
@@ -424,6 +436,9 @@ xhs unread                             # 未读数
 xhs notifications                      # 评论和 @ 通知
 xhs notifications --type likes         # 赞和收藏通知
 xhs notifications --type connections   # 新增关注通知
+xhs chats                              # 私信会话列表（含未读数）
+xhs messages <user_id>                 # 读某个会话的私信历史
+xhs send <user_id> -c "你好"           # 发送私信
 ```
 
 ## 认证策略

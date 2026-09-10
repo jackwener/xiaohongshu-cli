@@ -9,10 +9,12 @@ import random
 import re
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from .command_normalizers import resolve_current_user_id
 from .constants import CREATOR_HOST, HOME_URL, UPLOAD_HOST, USER_AGENT
 from .cookies import (
     cache_note_context,
@@ -23,6 +25,8 @@ from .cookies import (
 )
 from .exceptions import NeedVerifyError, UnsupportedOperationError, XhsApiError
 from .html_parser import extract_note_from_html
+from .im_codec import CONTENT_TYPE_TEXT, encode_chat_message, encrypt_payload
+from .limiter import check_write_budget
 
 logger = logging.getLogger(__name__)
 
@@ -675,6 +679,145 @@ class NotificationEndpointsMixin:
             "num": num,
             "cursor": cursor,
         })
+
+
+def _message_delivery_error(result: Any) -> str:
+    """Return a description unless the IM response positively confirms delivery.
+
+    Deliberately requires *positive* confirmation rather than the absence of a
+    failure marker.  ``_handle_response`` returns ``None`` for an empty body, so
+    "no failure marker found" would otherwise report a silent drop as a
+    successful send — the exact failure mode that makes a write API untrustworthy
+    for outreach work.  An unrecognised shape is reported as unconfirmed, which
+    is the safe direction: a false failure is recoverable, a false success is not.
+    """
+    if not isinstance(result, dict) or not result:
+        return "empty or non-dict response — delivery unconfirmed"
+    if result.get("success") is False:
+        return str(result.get("msg") or result.get("message") or "success=false")
+    code = result.get("code")
+    if code not in (None, 0, "0"):
+        return str(result.get("msg") or result.get("message") or f"code={code}")
+    # 观测到的成功响应形状是 {"chat_ack": ..., "message_id": "<server id>"}：
+    # 服务端签发的 message_id 就是投递凭证，比 code=0 更强。
+    if result.get("message_id") or result.get("success") is True or code in (0, "0"):
+        return ""
+    # 带上顶层字段名，让"未确认"可诊断而不必靠猜。
+    return (
+        "response carries no delivery marker — unconfirmed "
+        f"(keys: {sorted(result)})"
+    )
+
+
+class MessagingEndpointsMixin:
+    """Direct-message (IM) endpoints: conversation reads and short-link send.
+
+    小红书私信不在 ``/api/sns/web/`` 命名空间下，而是独立的 ``/api/im/web/``
+    前缀，但同在 edith 主机、共用同一套 x-s 签名，所以直接复用
+    ``_main_api_get`` / ``_main_api_post`` 即可，无需额外的传输层或握手。
+
+    注意 ``/api/sns/web/unread_count``（``get_unread_count``）只统计通知
+    （评论和@ / 赞和收藏 / 新增关注），**不包含私信**；私信未读要单独取
+    ``/api/im/web/chat/get_unread``。
+
+    发送走 HTTP short-link 兜底：把 protobuf 私信体 RSA 加密后 POST，
+    不需要建立 WebSocket（详见 ``im_codec``）。
+    """
+
+    def get_im_unread(self) -> dict[str, Any]:
+        """Per-peer direct-message unread counts, keyed by user id."""
+        return self._main_api_get("/api/im/web/chat/get_unread", {})
+
+    def get_chats(self, limit: int = 50, page: int = 0) -> dict[str, Any]:
+        """Conversation list (the message page's left column)."""
+        return self._main_api_get("/api/im/web/v3/chats", {
+            "limit": limit,
+            "complete": "true",
+            "page": page,
+            "source": "pc",
+        })
+
+    def get_chat_messages(
+        self,
+        chat_user_id: str,
+        limit: int = 30,
+        last_id: int = 0,
+        start_id: int = 0,
+    ) -> dict[str, Any]:
+        """Message history for one conversation, newest first."""
+        return self._main_api_get("/api/im/web/messages/history", {
+            "chat_user_id": chat_user_id,
+            "last_id": last_id,
+            "start_id": start_id,
+            "limit": limit,
+        })
+
+    def send_direct_message(
+        self,
+        receiver_id: str,
+        content: str,
+        *,
+        content_type: int = 1,
+    ) -> dict[str, Any]:
+        """Send one direct message over the RSA short-link HTTP transport.
+
+        发送前先过本地写入限流（``XHS_WRITE_RPM``，默认 1 写/分钟），再解析
+        当前用户 id 作为 sender。返回体不做 ``ok`` 硬编码：``_handle_response``
+        已拒绝 ``success=false``，这里再检查嵌套 ``code``，并在失败时抛错。
+        """
+        receiver = str(receiver_id or "")
+        text = str(content or "")
+        if not receiver:
+            raise XhsApiError("receiver_id is required")
+        if not text:
+            raise XhsApiError("content is required")
+        # 只支持文本；图片/卡片需要另一种 payload 结构，传 1 以外的值会造出
+        # 服务端无法解析的消息体。
+        if int(content_type) != CONTENT_TYPE_TEXT:
+            raise XhsApiError(
+                f"only content_type={CONTENT_TYPE_TEXT} (text) is supported"
+            )
+
+        sender = resolve_current_user_id(self.get_self_info())
+        if not sender:
+            raise XhsApiError(
+                "Cannot resolve the current user id — run 'xhs login' or 'xhs status' first"
+            )
+
+        # Consume the throttle immediately before the sensitive POST, so a
+        # session-expiry retry through run_client_action is not double-charged.
+        check_write_budget("dm")
+
+        local_mid = str(uuid.uuid4())
+        payload = encode_chat_message(
+            local_mid=local_mid,
+            timestamp_ms=int(time.time() * 1000),
+            sender_id=sender,
+            receiver_id=receiver,
+            content=text,
+            content_type=int(content_type),
+        )
+        encrypted = encrypt_payload(payload)
+        result = self._main_api_post(
+            "/api/im/web/short_link/send_message",
+            {"message": encrypted.decode("latin-1")},
+        )
+
+        rejection = _message_delivery_error(result)
+        if rejection:
+            raise XhsApiError(
+                f"Direct message rejected by XHS: {rejection}",
+                response=result if isinstance(result, dict) else None,
+            )
+        # message_id 由服务端签发，是真正的投递凭证；local_mid 只是客户端
+        # 生成的追踪 id，不能当成送达证明。
+        server_id = result.get("message_id", "") if isinstance(result, dict) else ""
+        return {
+            "message_id": str(server_id),
+            "local_mid": local_mid,
+            "receiver_id": receiver,
+            "response": result,
+        }
 
 
 class AuthEndpointsMixin:

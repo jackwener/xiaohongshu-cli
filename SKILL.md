@@ -1,6 +1,6 @@
 ---
 name: xiaohongshu-cli
-description: Use xiaohongshu-cli for ALL Xiaohongshu (Little Red Book, 小红书) operations — searching notes, reading content, browsing users, liking, collecting, commenting, following, and posting. Invoke whenever the user requests any Xiaohongshu interaction.
+description: Use xiaohongshu-cli for ALL Xiaohongshu (Little Red Book, 小红书) operations — searching notes, reading content, browsing users, liking, collecting, commenting, following, posting, and direct messaging. Invoke whenever the user requests any Xiaohongshu interaction.
 author: jackwener
 version: "0.6.4"
 tags:
@@ -97,6 +97,9 @@ Payloads live under `.data`.
 | `xhs search-user <keyword>` | Search users | `xhs search-user "摄影"` |
 | `xhs my-notes` | List own published notes | `xhs my-notes --page 0` |
 | `xhs notifications` | View notifications | `xhs notifications --type likes` |
+| `xhs chats` | Direct-message conversations (with unread) | `xhs chats --limit 20` |
+| `xhs messages` | One conversation's message history | `xhs messages <user_id>` |
+| `xhs send <user_id> -c "text"` | Send a direct message (write; throttled 1/min by default) | `xhs send 5f2e123 -c "你好"` |
 | `xhs unread` | Show unread counts | `xhs unread --json` |
 
 ### Interactions (Write)
@@ -224,21 +227,23 @@ Structured error codes returned in the `error.code` field:
 - `verification_required` — captcha/verification needed
 - `ip_blocked` — IP rate limited
 - `signature_error` — request signing failed
+- `rate_limited` — local DM write throttle rejected the send (see `XHS_WRITE_RPM`)
 - `api_error` — upstream API error
 - `unsupported_operation` — operation not available
 
 ## Limitations
 
 - **No video download** — cannot download note images/videos
-- **No DMs** — cannot access private messages
 - **No live streaming** — live features not supported
 - **No following/followers list** — XHS web API doesn't expose these endpoints
 - **Single account** — one set of cookies at a time
 - **Rate limited** — built-in Gaussian jitter delay (~1-1.5s) between requests; aggressive usage may trigger captchas or IP blocks
+- **DM sends are throttled** — `xhs send` allows 1 message/minute by default (`XHS_WRITE_RPM=0` disables); do not retry through `rate_limited`
 
 ## Anti-Detection Notes for Agents
 
 - **Do NOT parallelize requests** — the built-in rate-limit delay exists for account safety
+- **Respect the DM write throttle** — `xhs send` defaults to 1 message/minute. `rate_limited` is a local guard, not an API error; wait it out instead of retrying immediately
 - **Captcha recovery**: if `NeedVerifyError` occurs, the client auto-cools-down with increasing delays (5s→10s→20s→30s). Ask the user to complete captcha in browser before retrying
 - **Batch operations**: when doing bulk work (e.g., reading many notes), add `time.sleep()` between CLI calls
 - **Session stability**: all requests in a session share a consistent browser fingerprint. Restarting the CLI creates a new fingerprint session

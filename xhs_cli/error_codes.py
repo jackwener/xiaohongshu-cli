@@ -6,6 +6,7 @@ from .exceptions import (
     IpBlockedError,
     NeedVerifyError,
     NoCookieError,
+    RateLimitedError,
     SessionExpiredError,
     SignatureError,
     UnsupportedOperationError,
@@ -25,6 +26,8 @@ def error_code_for_exception(exc: Exception) -> str:
         return "signature_error"
     if isinstance(exc, UnsupportedOperationError):
         return "unsupported_operation"
+    if isinstance(exc, RateLimitedError):
+        return "rate_limited"
     if isinstance(exc, XhsApiError):
         if exc.code in {
             "not_authenticated",
@@ -32,6 +35,7 @@ def error_code_for_exception(exc: Exception) -> str:
             "ip_blocked",
             "signature_error",
             "unsupported_operation",
+            "rate_limited",
             "api_error",
         }:
             return str(exc.code)
