@@ -141,6 +141,8 @@ xhs unread                             # Unread counts (likes, mentions, follows
 xhs notifications                      # 评论和@ notifications
 xhs notifications --type likes        # 赞和收藏 notifications
 xhs notifications --type connections   # 新增关注 notifications
+xhs chats                              # Direct-message conversations (with unread)
+xhs messages <user_id>                 # Read one conversation's history
 
 ```
 
@@ -424,6 +426,8 @@ xhs unread                             # 未读数
 xhs notifications                      # 评论和 @ 通知
 xhs notifications --type likes         # 赞和收藏通知
 xhs notifications --type connections   # 新增关注通知
+xhs chats                              # 私信会话列表（含未读数）
+xhs messages <user_id>                 # 读某个会话的私信历史
 ```
 
 ## 认证策略

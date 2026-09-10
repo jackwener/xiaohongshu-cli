@@ -18,6 +18,7 @@ from .client_mixins import (
     AuthEndpointsMixin,
     CreatorEndpointsMixin,
     InteractionEndpointsMixin,
+    MessagingEndpointsMixin,
     NotificationEndpointsMixin,
     ReadingEndpointsMixin,
     SocialEndpointsMixin,
@@ -43,6 +44,7 @@ class XhsClient(
     CreatorEndpointsMixin,
     SocialEndpointsMixin,
     NotificationEndpointsMixin,
+    MessagingEndpointsMixin,
     AuthEndpointsMixin,
 ):
     """Xiaohongshu API client with automatic signing, rate limiting, and retry."""
