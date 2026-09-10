@@ -27,4 +27,4 @@ error:
 - reading and search commands return their payload under `data`
 - `status` returns `data.authenticated` plus `data.user`
 - `whoami` returns `data.user`
-- common `error.code` values include `not_authenticated`, `verification_required`, `ip_blocked`, `signature_error`, `unsupported_operation`, and `api_error`
+- common `error.code` values include `not_authenticated`, `verification_required`, `ip_blocked`, `signature_error`, `rate_limited`, `unsupported_operation`, and `api_error`

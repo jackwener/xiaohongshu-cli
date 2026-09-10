@@ -63,7 +63,23 @@ def select_topic_payload(topic_data: Any, fallback_name: str) -> list[dict[str, 
 
 
 def resolve_current_user_id(info: dict[str, Any]) -> str:
-    return info.get("user_id", "") if isinstance(info, dict) else ""
+    """Extract the current user id from activate / self-info payloads.
+
+    不同端点的 payload 把 id 放在不同层级（``login_info`` / ``basic_info`` /
+    顶层），逐个回退，避免把已登录用户当成空 id。
+    """
+    if not isinstance(info, dict):
+        return ""
+    login_info = info.get("login_info")
+    if isinstance(login_info, dict) and login_info.get("user_id"):
+        return str(login_info["user_id"])
+    basic = info.get("basic_info", info)
+    if isinstance(basic, dict) and basic.get("user_id"):
+        return str(basic["user_id"])
+    for key in ("user_id", "userid"):
+        if info.get(key):
+            return str(info[key])
+    return ""
 
 # frontChain 带 "[笔记]"/"[卡片]" 类型标记，比裸 title 更接近网页显示
 _CONTENT_TEXT_KEYS = ("text", "frontChain", "title", "content")

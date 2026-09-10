@@ -10,6 +10,7 @@ from xhs_cli.command_normalizers import (
     normalize_chats,
     unwrap_message_content,
 )
+from xhs_cli.exceptions import RateLimitedError, XhsApiError
 
 
 class TestMessagingEndpoints:
@@ -118,3 +119,149 @@ class TestNormalizeChatMessages:
     def test_revoked_flag(self):
         raw = {"out_message_list": [{"sender_id": "p", "content": "x", "revoked": True}]}
         assert normalize_chat_messages(raw, "me")[0]["revoked"] is True
+
+
+class TestSendDirectMessage:
+    """发送走 HTTP short-link：protobuf + RSA，不需要 WebSocket。"""
+
+    def _client(self, monkeypatch, captured, post_result, self_info=None):
+        monkeypatch.setattr(
+            XhsClient, "get_self_info",
+            lambda self: {"user_id": "me-1"} if self_info is None else self_info,
+        )
+
+        def fake_post(self, uri, data, header_overrides=None):
+            captured["uri"] = uri
+            captured["data"] = data
+            return post_result
+
+        monkeypatch.setattr(XhsClient, "_main_api_post", fake_post)
+        return XhsClient({"a1": "cookie"})
+
+    def test_uses_short_link_endpoint_and_encrypted_payload(self, monkeypatch):
+        captured = {}
+        client = self._client(monkeypatch, captured, {"code": 0})
+        try:
+            result = client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+
+        assert captured["uri"] == "/api/im/web/short_link/send_message"
+        message = captured["data"]["message"]
+        assert isinstance(message, str)
+        raw = message.encode("latin-1")
+        assert raw and len(raw) % 128 == 0
+        assert result["receiver_id"] == "peer-1"
+        assert result["local_mid"]
+
+    def test_throttle_checks_dm_bucket(self, monkeypatch):
+        buckets = []
+        monkeypatch.setattr(
+            "xhs_cli.client_mixins.check_write_budget", lambda bucket: buckets.append(bucket)
+        )
+        captured = {}
+        client = self._client(monkeypatch, captured, {"code": 0})
+        try:
+            client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+        assert buckets == ["dm"]
+
+    def test_throttle_error_propagates(self, monkeypatch):
+        def deny(bucket):
+            raise RateLimitedError("too fast")
+
+        monkeypatch.setattr("xhs_cli.client_mixins.check_write_budget", deny)
+        monkeypatch.setattr(XhsClient, "get_self_info", lambda self: {"user_id": "me-1"})
+        monkeypatch.setattr(XhsClient, "_main_api_post", lambda *a, **k: {"code": 0})
+        client = XhsClient({"a1": "cookie"})
+        try:
+            with pytest.raises(RateLimitedError):
+                client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+
+    def test_rejects_nested_failure_code(self, monkeypatch):
+        captured = {}
+        client = self._client(monkeypatch, captured, {"code": 12345, "msg": "blocked"})
+        try:
+            with pytest.raises(XhsApiError, match="rejected"):
+                client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+
+    @pytest.mark.parametrize("payload", [None, {}, "str", [], {"data": {"code": 0}}])
+    def test_unrecognised_response_is_unconfirmed_not_success(self, monkeypatch, payload):
+        """空响应/未知形状必须报未确认，不能当成发送成功。"""
+        captured = {}
+        client = self._client(monkeypatch, captured, payload)
+        try:
+            with pytest.raises(XhsApiError, match="unconfirmed"):
+                client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+
+    def test_server_message_id_is_surfaced(self, monkeypatch):
+        """真实成功响应形状：{"chat_ack": ..., "message_id": "<server id>"}。"""
+        captured = {}
+        client = self._client(
+            monkeypatch, captured,
+            {"chat_ack": {"ts": 1}, "message_id": "srv-123"},
+        )
+        try:
+            out = client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+        assert out["message_id"] == "srv-123"
+        assert out["local_mid"] and out["local_mid"] != "srv-123"
+
+    @pytest.mark.parametrize("payload", [{"code": 0}, {"success": True}, {"code": "0"}])
+    def test_positive_confirmation_accepted(self, monkeypatch, payload):
+        captured = {}
+        client = self._client(monkeypatch, captured, payload)
+        try:
+            assert client.send_direct_message("peer-1", "hello")["receiver_id"] == "peer-1"
+        finally:
+            client.close()
+
+    def test_non_text_content_type_rejected(self, monkeypatch):
+        captured = {}
+        client = self._client(monkeypatch, captured, {"code": 0})
+        try:
+            with pytest.raises(XhsApiError, match="content_type=1"):
+                client.send_direct_message("peer-1", "hello", content_type=2)
+        finally:
+            client.close()
+
+    def test_requires_resolvable_sender(self, monkeypatch):
+        monkeypatch.setattr(XhsClient, "get_self_info", lambda self: {})
+        monkeypatch.setattr(XhsClient, "_main_api_post", lambda *a, **k: {})
+        client = XhsClient({"a1": "cookie"})
+        try:
+            with pytest.raises(XhsApiError, match="current user id"):
+                client.send_direct_message("peer-1", "hello")
+        finally:
+            client.close()
+
+    def test_empty_content_fails_before_network(self, monkeypatch):
+        client = XhsClient({"a1": "cookie"})
+        self_info_calls = []
+        monkeypatch.setattr(
+            XhsClient, "get_self_info",
+            lambda self: self_info_calls.append(1) or {"user_id": "me"},
+        )
+        try:
+            with pytest.raises(XhsApiError, match="content is required"):
+                client.send_direct_message("peer-1", "")
+        finally:
+            client.close()
+        assert self_info_calls == []
+
+    def test_empty_receiver_fails_before_network(self, monkeypatch):
+        client = XhsClient({"a1": "cookie"})
+        monkeypatch.setattr(XhsClient, "get_self_info", lambda self: {"user_id": "me"})
+        try:
+            with pytest.raises(XhsApiError, match="receiver_id is required"):
+                client.send_direct_message("", "hello")
+        finally:
+            client.close()

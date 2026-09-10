@@ -1,7 +1,7 @@
-"""Direct-message commands: conversation list and message history.
+"""Direct-message commands: conversation list, history, and send.
 
-只读。小红书的私信发送走另一套传输（protobuf over WebSocket，或 RSA 加密的
-short-link HTTP 兜底），本模块不涉及。
+读走 ``/api/im/web/`` 的 GET 端点；发送走 HTTP short-link 兜底（protobuf + RSA，
+不需要 WebSocket）。发送是敏感写操作，受本地写入限流保护。
 """
 
 import click
@@ -11,7 +11,7 @@ from ..command_normalizers import (
     normalize_chats,
     resolve_current_user_id,
 )
-from ..formatter import console
+from ..formatter import console, print_success
 from ._common import handle_command, run_client_action, structured_output_options
 
 
@@ -79,6 +79,29 @@ def messages(ctx, user_id: str, limit: int, as_json: bool, as_yaml: bool):
             client.get_chat_messages(user_id, limit=limit), me_id
         ),
         render=_render,
+        as_json=as_json,
+        as_yaml=as_yaml,
+    )
+
+
+@click.command()
+@click.argument("user_id")
+@click.option("--content", "-c", required=True, help="Message text")
+@structured_output_options
+@click.pass_context
+def send(ctx, user_id: str, content: str, as_json: bool, as_yaml: bool):
+    """Send a direct message to a user (from `xhs chats`).
+
+    发送是敏感写操作，默认受本地限流保护（1 条/分钟）；
+    可用环境变量 XHS_WRITE_RPM 调整或设为 0 关闭。
+    """
+    handle_command(
+        ctx,
+        action=lambda client: client.send_direct_message(user_id, content),
+        render=lambda data: print_success(
+            f"私信已发送 → {data['receiver_id']}  "
+            f"[dim]message_id {data['message_id'] or '?'}[/dim]"
+        ),
         as_json=as_json,
         as_yaml=as_yaml,
     )

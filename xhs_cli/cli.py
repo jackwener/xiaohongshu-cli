@@ -21,6 +21,9 @@ Usage:
     xhs unread
     xhs post --title "..." --body "..." --images img.png
     xhs delete <id_or_url> [-y]
+    xhs chats
+    xhs messages <user_id>
+    xhs send <user_id> --content "..."
 """
 
 from __future__ import annotations
@@ -126,6 +129,7 @@ cli.add_command(notifications.notifications)
 cli.add_command(notifications.unread)
 cli.add_command(messages_cmd.chats)
 cli.add_command(messages_cmd.messages)
+cli.add_command(messages_cmd.send)
 
 if __name__ == "__main__":
     cli()
