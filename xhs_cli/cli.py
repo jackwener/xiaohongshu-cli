@@ -31,7 +31,17 @@ import sys
 import click
 
 from . import __version__
-from .commands import auth, creator, interactions, notifications, reading, social
+from .commands import (
+    auth,
+    creator,
+    interactions,
+    notifications,
+    reading,
+    social,
+)
+from .commands import (
+    messages as messages_cmd,
+)
 
 
 def _fix_windows_encoding() -> None:
@@ -114,6 +124,8 @@ cli.add_command(creator.delete)
 
 cli.add_command(notifications.notifications)
 cli.add_command(notifications.unread)
+cli.add_command(messages_cmd.chats)
+cli.add_command(messages_cmd.messages)
 
 if __name__ == "__main__":
     cli()

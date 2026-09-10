@@ -677,6 +677,47 @@ class NotificationEndpointsMixin:
         })
 
 
+class MessagingEndpointsMixin:
+    """Read-only direct-message (IM) endpoints.
+
+    小红书私信不在 ``/api/sns/web/`` 命名空间下，而是独立的 ``/api/im/web/``
+    前缀，但同在 edith 主机、共用同一套 x-s 签名，所以直接复用
+    ``_main_api_get`` 即可，无需额外的传输层或握手。
+
+    注意 ``/api/sns/web/unread_count``（``get_unread_count``）只统计通知
+    （评论和@ / 赞和收藏 / 新增关注），**不包含私信**；私信未读要单独取
+    ``/api/im/web/chat/get_unread``。
+    """
+
+    def get_im_unread(self) -> dict[str, Any]:
+        """Per-peer direct-message unread counts, keyed by user id."""
+        return self._main_api_get("/api/im/web/chat/get_unread", {})
+
+    def get_chats(self, limit: int = 50, page: int = 0) -> dict[str, Any]:
+        """Conversation list (the message page's left column)."""
+        return self._main_api_get("/api/im/web/v3/chats", {
+            "limit": limit,
+            "complete": "true",
+            "page": page,
+            "source": "pc",
+        })
+
+    def get_chat_messages(
+        self,
+        chat_user_id: str,
+        limit: int = 30,
+        last_id: int = 0,
+        start_id: int = 0,
+    ) -> dict[str, Any]:
+        """Message history for one conversation, newest first."""
+        return self._main_api_get("/api/im/web/messages/history", {
+            "chat_user_id": chat_user_id,
+            "last_id": last_id,
+            "start_id": start_id,
+            "limit": limit,
+        })
+
+
 class AuthEndpointsMixin:
     """Authentication-specific endpoints."""
 

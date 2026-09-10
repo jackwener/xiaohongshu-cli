@@ -97,6 +97,8 @@ Payloads live under `.data`.
 | `xhs search-user <keyword>` | Search users | `xhs search-user "摄影"` |
 | `xhs my-notes` | List own published notes | `xhs my-notes --page 0` |
 | `xhs notifications` | View notifications | `xhs notifications --type likes` |
+| `xhs chats` | Direct-message conversations (with unread) | `xhs chats --limit 20` |
+| `xhs messages` | One conversation's message history | `xhs messages <user_id>` |
 | `xhs unread` | Show unread counts | `xhs unread --json` |
 
 ### Interactions (Write)
