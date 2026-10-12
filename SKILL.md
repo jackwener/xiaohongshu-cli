@@ -88,7 +88,7 @@ Payloads live under `.data`.
 | `xhs read <id_or_url_or_index>` | Read a note by ID, URL, or short index | `xhs read 1` / `xhs read "https://...?xsec_token=xxx"` |
 | `xhs comments <id_or_url_or_index>` | Get comments by ID, URL, or short index | `xhs comments 1` / `xhs comments "https://...?xsec_token=..."` |
 | `xhs comments <id_or_url> --all` | Get ALL comments (auto-paginate) | `xhs comments "<url>" --all --json` |
-| `xhs sub-comments <note_id> <comment_id>` | Get replies to comment | `xhs sub-comments abc 123` |
+| `xhs sub-comments <id_or_url_or_index> <comment_id>` | Get replies to a comment (needs xsec_token: URL, cached, or `--xsec-token`) | `xhs sub-comments 1 123` / `xhs sub-comments "<url>" 123` |
 | `xhs user <user_id>` | View user profile | `xhs user 5f2e123` |
 | `xhs user-posts <user_id>` | List user's notes | `xhs user-posts 5f2e123 --cursor ""` |
 | `xhs feed` | Browse recommendation feed | `xhs feed --yaml` |

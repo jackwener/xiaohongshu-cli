@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -385,31 +386,27 @@ class ReadingEndpointsMixin:
     def get_hot_feed(self, category: str = "homefeed.fashion_v3") -> dict[str, Any]:
         return self.get_home_feed(category=category)
 
-    def get_comments(
+    def _request_with_note_context(
         self,
         note_id: str,
-        cursor: str = "",
-        xsec_token: str = "",
-        top_comment_id: str = "",
-        xsec_source: str = "",
+        xsec_token: str,
+        xsec_source: str,
+        request: Callable[[str], Any],
+        *,
+        purpose: str,
     ) -> Any:
+        """Run ``request(token)`` with a resolved xsec_token, retrying once if a cached token is stale."""
         cached = get_cached_note_context(note_id)
         used_cached_context = not xsec_token and bool(cached.get("token"))
         token, source = self.resolve_xsec_context(note_id, xsec_token, xsec_source)
         if not token:
             raise XhsApiError(
-                "Could not resolve xsec_token for comments. Pass a full note URL or --xsec-token explicitly."
+                f"Could not resolve xsec_token for {purpose}. Pass a full note URL or --xsec-token explicitly."
             )
         if source:
             cache_note_context(note_id, token, source)
         try:
-            return self._main_api_get("/api/sns/web/v2/comment/page", {
-                "note_id": note_id,
-                "cursor": cursor,
-                "top_comment_id": top_comment_id,
-                "image_formats": "jpg,webp,avif",
-                "xsec_token": token,
-            })
+            return request(token)
         except (NeedVerifyError, XhsApiError):
             if not used_cached_context:
                 raise
@@ -419,13 +416,26 @@ class ReadingEndpointsMixin:
                 raise
             if refreshed_source:
                 cache_note_context(note_id, refreshed_token, refreshed_source)
+            return request(refreshed_token)
+
+    def get_comments(
+        self,
+        note_id: str,
+        cursor: str = "",
+        xsec_token: str = "",
+        top_comment_id: str = "",
+        xsec_source: str = "",
+    ) -> Any:
+        def _request(token: str) -> Any:
             return self._main_api_get("/api/sns/web/v2/comment/page", {
                 "note_id": note_id,
                 "cursor": cursor,
                 "top_comment_id": top_comment_id,
                 "image_formats": "jpg,webp,avif",
-                "xsec_token": refreshed_token,
+                "xsec_token": token,
             })
+
+        return self._request_with_note_context(note_id, xsec_token, xsec_source, _request, purpose="comments")
 
     def get_all_comments(
         self,
@@ -472,13 +482,22 @@ class ReadingEndpointsMixin:
         root_comment_id: str,
         num: int = 30,
         cursor: str = "",
+        xsec_token: str = "",
+        xsec_source: str = "",
     ) -> Any:
-        return self._main_api_get("/api/sns/web/v2/comment/sub/page", {
-            "note_id": note_id,
-            "root_comment_id": root_comment_id,
-            "num": num,
-            "cursor": cursor,
-        })
+        # The sub-comment endpoint requires the same xsec_token as /comment/page;
+        # without it the API answers with a 461 captcha challenge.
+        def _request(token: str) -> Any:
+            return self._main_api_get("/api/sns/web/v2/comment/sub/page", {
+                "note_id": note_id,
+                "root_comment_id": root_comment_id,
+                "num": num,
+                "cursor": cursor,
+                "image_formats": "jpg,webp,avif",
+                "xsec_token": token,
+            })
+
+        return self._request_with_note_context(note_id, xsec_token, xsec_source, _request, purpose="sub-comments")
 
 
 class InteractionEndpointsMixin:

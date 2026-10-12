@@ -333,6 +333,54 @@ class TestCliBasic:
         assert called["kwargs"]["xsec_token"] == "token-abc"
         assert called["kwargs"]["xsec_source"] == "pc_search"
 
+    def test_sub_comments_passes_explicit_xsec_token(self, monkeypatch):
+        called = {}
+
+        class FakeClient:
+            def get_sub_comments(self, note_id, comment_id, cursor="", **kwargs):
+                called["note_id"] = note_id
+                called["comment_id"] = comment_id
+                called["cursor"] = cursor
+                called["kwargs"] = kwargs
+                return {"comments": []}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            return action(FakeClient())
+
+        monkeypatch.setattr("xhs_cli.commands.reading.handle_command", fake_handle_command)
+
+        result = runner.invoke(
+            cli, ["sub-comments", "note-abc", "comment-1", "--xsec-token", "token-abc", "--cursor", "c1", "--yaml"]
+        )
+
+        assert result.exit_code == 0
+        assert called["note_id"] == "note-abc"
+        assert called["comment_id"] == "comment-1"
+        assert called["cursor"] == "c1"
+        assert called["kwargs"]["xsec_token"] == "token-abc"
+
+    def test_sub_comments_url_resolves_note_context(self, monkeypatch):
+        called = {}
+
+        class FakeClient:
+            def get_sub_comments(self, note_id, comment_id, cursor="", **kwargs):
+                called["note_id"] = note_id
+                called["kwargs"] = kwargs
+                return {"comments": []}
+
+        def fake_handle_command(ctx, action, render, as_json, as_yaml):
+            return action(FakeClient())
+
+        monkeypatch.setattr("xhs_cli.commands.reading.handle_command", fake_handle_command)
+
+        url = "https://www.xiaohongshu.com/explore/note-abc?xsec_token=token-url&xsec_source=pc_search"
+        result = runner.invoke(cli, ["sub-comments", url, "comment-1", "--yaml"])
+
+        assert result.exit_code == 0
+        assert called["note_id"] == "note-abc"
+        assert called["kwargs"]["xsec_token"] == "token-url"
+        assert called["kwargs"]["xsec_source"] == "pc_search"
+
     def test_read_index_not_found_returns_usage_error(self, monkeypatch):
         monkeypatch.setattr("xhs_cli.note_refs.get_note_by_index", lambda idx: None)
 

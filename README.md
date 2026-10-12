@@ -88,7 +88,7 @@ xhs comments "<url>" --all             # Fetch ALL comments (auto-paginate all p
 xhs comments "<url>" --all --json      # All comments as JSON
 xhs comments <note_id> --xsec-token T  # Use note_id + explicit xsec_token
 xhs comments <note_id>                 # Reuse cached token if available
-xhs sub-comments <note_id> <cmt_id>   # View replies to a comment
+xhs sub-comments "<url>" <cmt_id>      # View replies to a comment (URL / cached token / --xsec-token)
 xhs user <user_id>                     # User profile
 xhs user-posts <user_id>              # User's published notes
 xhs user-posts <user_id> --cursor X   # Paginate with cursor
@@ -381,7 +381,7 @@ xhs comments "<url>" --all             # 获取全部评论（自动翻页）
 xhs comments "<url>" --all --json      # 全部评论，JSON 格式
 xhs comments <note_id> --xsec-token T  # 用 note_id + 显式 xsec_token
 xhs comments <note_id>                 # 如果之前访问过 URL，会复用缓存 token
-xhs sub-comments <note_id> <cmt_id>   # 查看评论的回复
+xhs sub-comments "<url>" <cmt_id>      # 查看评论的回复（支持 URL / 缓存 token / --xsec-token）
 xhs user <user_id>                     # 用户主页
 xhs user-posts <user_id>              # 用户发布的笔记
 

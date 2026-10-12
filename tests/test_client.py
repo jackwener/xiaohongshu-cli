@@ -276,3 +276,75 @@ class TestReadingEndpointBehavior:
 
         assert result["items"][0]["note_card"]["title"] == "html-ok"
         assert get_cached_note_context("note-123") == {}
+
+    def test_get_sub_comments_sends_explicit_xsec_token(self, monkeypatch):
+        captured = {}
+
+        def fake_get(self, uri, params=None, **kwargs):
+            captured["uri"] = uri
+            captured["params"] = params
+            return {"comments": []}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            client.get_sub_comments("note-sub", "root-1", cursor="c1", xsec_token="token-sub", xsec_source="pc_search")
+        finally:
+            client.close()
+
+        assert captured["uri"] == "/api/sns/web/v2/comment/sub/page"
+        assert captured["params"]["note_id"] == "note-sub"
+        assert captured["params"]["root_comment_id"] == "root-1"
+        assert captured["params"]["cursor"] == "c1"
+        assert captured["params"]["xsec_token"] == "token-sub"
+        assert get_cached_note_context("note-sub")["token"] == "token-sub"
+
+    def test_get_sub_comments_uses_cached_note_context(self, monkeypatch):
+        cache_note_context("note-sub-cached", "cached-token", "pc_feed")
+        captured = {}
+
+        def fake_get(self, uri, params=None, **kwargs):
+            captured["params"] = params
+            return {"comments": []}
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            client.get_sub_comments("note-sub-cached", "root-1")
+        finally:
+            client.close()
+
+        assert captured["params"]["xsec_token"] == "cached-token"
+
+    def test_get_sub_comments_retries_after_stale_cached_token(self, monkeypatch):
+        cache_note_context("note-sub-stale", "stale-token", "pc_feed")
+        seen_tokens = []
+
+        def fake_get(self, uri, params=None, **kwargs):
+            seen_tokens.append(params["xsec_token"])
+            if params["xsec_token"] == "stale-token":
+                raise XhsApiError("stale token")
+            return {"comments": [{"id": "reply-1"}]}
+
+        def fake_resolve(self, note_id, preferred_token="", preferred_source=""):
+            if preferred_token:
+                return preferred_token, preferred_source
+            cached = get_cached_note_context(note_id)
+            if cached.get("token"):
+                return cached["token"], cached.get("source", "")
+            return "fresh-token", "pc_feed"
+
+        monkeypatch.setattr(XhsClient, "_main_api_get", fake_get)
+        monkeypatch.setattr(XhsClient, "resolve_xsec_context", fake_resolve)
+
+        client = XhsClient({"a1": "cookie"})
+        try:
+            result = client.get_sub_comments("note-sub-stale", "root-1")
+        finally:
+            client.close()
+
+        assert seen_tokens == ["stale-token", "fresh-token"]
+        assert result["comments"][0]["id"] == "reply-1"
+        assert get_cached_note_context("note-sub-stale")["token"] == "fresh-token"
