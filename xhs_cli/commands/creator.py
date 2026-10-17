@@ -25,6 +25,25 @@ def extract_hashtags(body: str) -> list[str]:
     return re.findall(r"(?:^|(?<=\s))#([^\s#]+)", body)
 
 
+def format_body_hashtags(body: str, tag_map: dict[str, str]) -> str:
+    """Format hashtag occurrences in body to Xiaohongshu's native '#topic[话题]#' syntax.
+
+    Matches '#tag' at start-of-string or preceded by whitespace.
+    Sorts keys by length descending to prevent substring collisions (e.g., #美股 vs #美股大跌).
+    """
+    if not tag_map:
+        return body
+
+    formatted = body
+    for raw_tag in sorted(tag_map.keys(), key=len, reverse=True):
+        official_name = tag_map[raw_tag]
+        pattern = re.compile(rf"(?:^|(?<=\s))#{re.escape(raw_tag)}(?=[\s#]|$)")
+        replacement = f"#{official_name}[话题]#"
+        formatted = pattern.sub(replacement, formatted)
+
+    return formatted
+
+
 @click.command()
 @click.option("--title", required=True, help="Note title")
 @click.option("--body", required=True, help="Note body text")
@@ -63,13 +82,21 @@ def post(
             unique_topics = unique_topics[:10]
 
         resolved_topics = []
+        tag_map: dict[str, str] = {}
         for t in unique_topics:
             topic_data = client.search_topics(t)
-            resolved_topics.extend(select_topic_payload(topic_data, t))
+            payloads = select_topic_payload(topic_data, t)
+            if payloads:
+                resolved_topics.extend(payloads)
+                tag_map[t] = payloads[0].get("name", t)
+            else:
+                tag_map[t] = t
+
+        formatted_desc = format_body_hashtags(body, tag_map)
 
         return client.create_image_note(
             title=title,
-            desc=body,
+            desc=formatted_desc,
             image_file_ids=file_ids,
             topics=resolved_topics,
             is_private=is_private,
