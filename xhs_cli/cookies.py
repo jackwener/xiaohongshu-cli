@@ -5,8 +5,10 @@ from __future__ import annotations
 import functools
 import json
 import logging
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import OrderedDict
@@ -67,10 +69,23 @@ def load_saved_cookies() -> dict[str, str] | None:
 def save_cookies(cookies: dict[str, str]) -> None:
     """Save cookies to local storage with restricted permissions and TTL timestamp."""
     cookie_path = get_cookie_path()
-    payload = {**cookies, "saved_at": time.time()}
-    cookie_path.write_text(json.dumps(payload, indent=2))
-    cookie_path.chmod(0o600)
-    logger.debug("Saved cookies to %s", cookie_path)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=cookie_path.parent,
+                                         prefix=".cookies-", delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump({**cookies, "saved_at": time.time()}, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, cookie_path)
+    except OSError:
+        from .exceptions import XhsApiError
+
+        raise XhsApiError("Could not save credentials; previous credential file was retained.") from None
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    logger.debug("Saved cookies")
 
 
 def clear_cookies() -> None:

@@ -675,27 +675,3 @@ class NotificationEndpointsMixin:
             "num": num,
             "cursor": cursor,
         })
-
-
-class AuthEndpointsMixin:
-    """Authentication-specific endpoints."""
-
-    def login_activate(self) -> dict[str, Any]:
-        return self._main_api_post("/api/sns/web/v1/login/activate", {})
-
-    def create_qr_login(self) -> dict[str, Any]:
-        return self._main_api_post("/api/sns/web/v1/login/qrcode/create", {"qr_type": 1})
-
-    def check_qr_status(self, qr_id: str, code: str) -> dict[str, Any]:
-        return self._main_api_post("/api/qrcode/userinfo", {
-            "qrId": qr_id,
-            "code": code,
-        }, {
-            "service-tag": "webcn",
-        })
-
-    def complete_qr_login(self, qr_id: str, code: str) -> dict[str, Any]:
-        return self._main_api_get("/api/sns/web/v1/login/qrcode/status", {
-            "qr_id": qr_id,
-            "code": code,
-        })

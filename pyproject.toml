@@ -27,10 +27,10 @@ dependencies = [
     "xhshow>=0.1.9",
     "PyYAML>=6.0",
     "qrcode>=7.0",
-    "camoufox>=0.4.11",
 ]
 
 [project.optional-dependencies]
+browser = ["cloakbrowser>=0.7,<0.8"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.11.0", "mypy>=1.15.0"]
 
 [project.urls]

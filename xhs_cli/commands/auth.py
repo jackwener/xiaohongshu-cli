@@ -6,7 +6,7 @@ import click
 
 from ..client import XhsClient
 from ..command_normalizers import normalize_xhs_user_payload
-from ..cookies import clear_cookies, get_cookies
+from ..cookies import clear_cookies, get_cookies, save_cookies
 from ..exceptions import XhsApiError
 from ..formatter import (
     console,
@@ -47,6 +47,7 @@ def _print_status_summary(user: dict[str, object]) -> None:
     if user["desc"]:
         console.print(f"  简介: {user['desc']}")
 
+
 @click.command()
 @click.option(
     "--cookie-source",
@@ -55,36 +56,28 @@ def _print_status_summary(user: dict[str, object]) -> None:
     help="Browser to read cookies from (default: auto-detect all installed browsers)",
 )
 @structured_output_options
-@click.option("--qrcode", "use_qrcode", is_flag=True, default=False,
-              help="Login via QR code (scan with Xiaohongshu app)")
+@click.option(
+    "--qrcode", "use_qrcode", is_flag=True, default=False, help="Login via QR code (scan with Xiaohongshu app)"
+)
 @click.pass_context
 def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrcode: bool):
     """Log in by extracting cookies from browser, or via QR code."""
 
     if use_qrcode:
+
         def _login_with_qrcode() -> None:
+            # Keep machine-readable stdout clean. A terminal QR belongs on stderr.
+            import sys
+            from contextlib import redirect_stdout
+
             from ..qr_login import qrcode_login
 
-            cookies = qrcode_login(prefer_browser_assisted=True)
-
-            # Verify by fetching user info (may return guest=true briefly)
-            import time
-            time.sleep(1)  # brief delay for session propagation
-            with XhsClient(cookies) as client:
-                info = client.get_self_info()
-            user = normalize_xhs_user_payload(info)
-
-            if user["guest"]:
-                # Session not yet propagated; still valid
-                if not _emit_payload(
-                    {"authenticated": True, "user": {"id": user["id"]}},
-                    as_json=as_json,
-                    as_yaml=as_yaml,
-                ):
-                    print_success("Logged in (session saved)")
-            else:
-                if not _emit_payload({"authenticated": True, "user": user}, as_json=as_json, as_yaml=as_yaml):
-                    _print_login_success(user)
+            with redirect_stdout(sys.stderr):
+                result = qrcode_login()
+            user = normalize_xhs_user_payload(result.user)
+            save_cookies(result.cookies)
+            if not _emit_payload({"authenticated": True, "user": user}, as_json=as_json, as_yaml=as_yaml):
+                _print_login_success(user)
 
         handle_errors(
             _login_with_qrcode,
@@ -135,6 +128,7 @@ def login(ctx, cookie_source: str | None, as_json: bool, as_yaml: bool, use_qrco
 @click.pass_context
 def status(ctx, as_json: bool, as_yaml: bool):
     """Check current login status and user info."""
+
     def _show_status() -> None:
         info = run_client_action(ctx, lambda client: client.get_self_info())
         user = normalize_xhs_user_payload(info)
@@ -160,6 +154,7 @@ def logout(ctx, as_json: bool, as_yaml: bool):
 @click.pass_context
 def whoami(ctx, as_json: bool, as_yaml: bool):
     """Show detailed profile of current user (level, fans, likes)."""
+
     def _show_profile() -> None:
         info = run_client_action(ctx, lambda client: client.get_self_info())
         user = normalize_xhs_user_payload(info)
