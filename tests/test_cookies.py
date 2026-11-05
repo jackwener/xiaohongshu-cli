@@ -180,3 +180,17 @@ class TestNoteIndexCache:
             "xsec_token": "",
             "xsec_source": "",
         }
+
+
+def test_failed_cookie_publish_retains_previous_file(tmp_config_dir, monkeypatch):
+    from xhs_cli.exceptions import XhsApiError
+
+    save_cookies({"a1": "previous", "web_session": "previous"})
+    previous = (tmp_config_dir / "cookies.json").read_bytes()
+    def fail(*args):
+        raise OSError("private-IO-error")
+    monkeypatch.setattr("xhs_cli.cookies.os.replace", fail)
+    with pytest.raises(XhsApiError, match="previous credential file was retained"):
+        save_cookies({"a1": "candidate", "web_session": "candidate"})
+    assert (tmp_config_dir / "cookies.json").read_bytes() == previous
+    assert not list(tmp_config_dir.glob(".cookies-*"))

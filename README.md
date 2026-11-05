@@ -64,7 +64,7 @@ uv sync
 ```bash
 # ─── Auth ─────────────────────────────────────────
 xhs login                             # Extract cookies from browser
-xhs login --qrcode                    # Browser-assisted QR login, scan in terminal
+xhs login --qrcode                    # Visible, humanized CloakBrowser; scan QR in terminal
 xhs status                            # Check login status
 xhs whoami                            # Detailed profile (fans, likes, etc)
 xhs whoami --json                     # Structured JSON envelope
@@ -156,6 +156,66 @@ xiaohongshu-cli supports multiple authentication methods:
 Use `--cookie-source <browser>` to specify a browser explicitly, or `--qrcode` for browser-assisted QR login.
 Other authenticated commands automatically retry once with fresh browser cookies when the saved session has expired.
 
+### CloakBrowser login
+
+Browser automation has one implementation: the **Python CloakBrowser API**,
+which returns Playwright objects. Every launch uses these fixed options:
+
+```python
+from cloakbrowser import launch
+
+browser = launch(headless=False, humanize=True)
+```
+
+This is deliberately **headed**, not headless. The CLI calls the SDK directly,
+without checking DISPLAY/Wayland, injecting desktop environment variables or
+rejecting SSH sessions. Whether it can start is determined by CloakBrowser and
+the operating system. There is no automatic Xvfb or headless fallback.
+
+```bash
+uv sync --extra browser
+# Prepare CloakBrowser's license and browser using its own explicit setup commands:
+uv run --extra browser cloakbrowser login
+uv run --extra browser cloakbrowser install
+# Run from a terminal connected to the authorized graphical session:
+uv run --extra browser xhs login --qrcode
+```
+
+CloakBrowser owns license, binary selection, downloads and updates. Its launch
+may download a missing browser or perform managed updates; this project does not
+claim downloads are disabled. Prepare it before unattended use. Use its standard
+`CLOAKBROWSER_LICENSE_KEY` and, for an explicitly managed CloakBrowser binary,
+`CLOAKBROWSER_BINARY_PATH`; do not point that override at ordinary system Chrome.
+License credentials must not be put into model messages, logs or command arguments.
+There is no system-Chromium launcher, backend selector, HTTP QR fallback or custom
+Node.js bridge in this project. Cookie extraction from existing browsers is a
+separate read operation, not a second browser automation implementation.
+
+The public Python entry returns verified credentials **without saving them**:
+
+```python
+from xhs_cli.qr_login import qrcode_login
+
+result = qrcode_login(
+    timeout_s=240,
+    on_qr=render_qr,       # receives the QR URL; callback owns rendering
+    on_status=show_status,
+)
+# result.cookies: credentials; result.user: verified account payload
+# The caller owns storage. Never print these credentials or pass them to a model.
+```
+
+The CLI renders the QR/status to stderr and writes credentials only after account
+verification, with an atomic private-file replacement. Phone confirmation alone is
+not success; missing cookies, guest sessions and mismatched identities fail without
+replacing previous credentials. `QrLoginError.stage` identifies a safe failure
+stage; response bodies and QR/session secrets are never included in its message.
+The browser/context always close, including callback exceptions and timeout.
+
+`humanize=True` enables the SDK's behavior adjustments; it does not grant platform
+permission or guarantee an undetectable session. The driver boundary is
+`xhs_cli/browser.py`; CDP is not implemented. See [browser design](docs/browser-design.md).
+
 ### Cookie TTL
 
 Saved cookies are valid for **7 days** by default. After that, the client automatically attempts to refresh from the browser. If browser extraction fails, the existing cookies are used with a warning.
@@ -174,9 +234,13 @@ After any listing command such as `search`, `feed`, `hot`, `user-posts`, `favori
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OUTPUT` | `auto` | Output format: `json`, `yaml`, `rich`, or `auto` (→ YAML when non-TTY) |
+| `CLOAKBROWSER_LICENSE_KEY` | SDK configuration | CloakBrowser license; keep private |
+| `CLOAKBROWSER_BINARY_PATH` | SDK managed | Optional explicit CloakBrowser binary, not ordinary Chromium |
+
 ## Rate Limiting & Anti-Detection
 
-xiaohongshu-cli includes comprehensive anti-risk-control measures designed to minimize detection:
+The HTTP API transport includes the measures below. These are not a guarantee
+that browser automation is undetectable or that platform verification will not occur:
 
 ### Request Timing
 - **Gaussian jitter**: Delays between requests use a truncated Gaussian distribution (not fixed intervals) to mimic natural browsing patterns
@@ -247,7 +311,8 @@ xhs_cli/
 ├── creator_signing.py  # Creator API AES-128-CBC signature
 ├── constants.py        # URLs, User-Agent, Chrome version, SDK config
 ├── exceptions.py       # Structured exception hierarchy (6 error types)
-├── qr_login.py         # QR code login (browser-assisted terminal QR + HTTP fallback)
+├── browser.py          # Python CloakBrowser / Playwright resource ownership
+├── qr_login.py         # CloakBrowser QR login; verified results, no credential writes
 ├── formatter.py        # Output formatting, schema envelope, Rich rendering
 └── commands/
     ├── _common.py      # Shared CLI helpers (structured_output_options, etc.)
@@ -360,7 +425,7 @@ uv sync
 ```bash
 # 认证
 xhs login                             # 从浏览器提取 Cookie
-xhs login --qrcode                    # browser-assisted 二维码扫码登录（终端显示二维码）
+xhs login --qrcode                    # 可见窗口 CloakBrowser + humanize，终端扫码登录
 xhs status                            # 检查登录状态
 xhs whoami                            # 查看用户资料
 xhs logout                            # 清除缓存的 Cookie
@@ -437,6 +502,22 @@ xiaohongshu-cli 支持多种认证方式：
 Cookie 保存后有效期 **7 天**，超时后自动尝试从浏览器刷新。
 
 `xhs login` 会自动尝试所有已安装浏览器，使用第一个有有效 Cookie 的浏览器。也可用 `--cookie-source <browser>` 指定浏览器，或 `--qrcode` 使用 browser-assisted 二维码登录。其他需认证命令在 session 过期时会自动重试一次。
+
+### CloakBrowser 扫码
+
+浏览器统一使用 Python CloakBrowser，固定 `headless=False, humanize=True`，返回 Python
+Playwright 对象。不使用自写 Node.js 桥接、系统 Chromium 启动器、Xvfb 或无头回退。
+从本地仓库执行 `uv sync --extra browser`，按 CloakBrowser 自身流程准备许可证与浏览器，然后执行
+`xhs login --qrcode`。不检查 DISPLAY/Wayland、不因 SSH 环境提前拒绝，也不自动注入
+桌面环境变量；直接调用 SDK，由 CloakBrowser 和操作系统判断能否启动。
+
+浏览器下载、升级与授权由 SDK 管理，未准备时启动可能触发下载；不要把它当作零下载模式。
+使用标准 `CLOAKBROWSER_LICENSE_KEY` 和可选 `CLOAKBROWSER_BINARY_PATH`，密钥不进入日志、
+模型消息或命令参数。后者应指向真正的 CloakBrowser，而不是普通 Chromium。
+
+Python 的 `qrcode_login(...)` 返回 `QrLoginResult(cookies, user)`，不保存凭据；宿主负责存储。
+CLI 仅在真实账号验证通过后原子保存 Cookie。手机确认不等于登录成功，guest 或账号不匹配
+都视为失败，保留原凭据。人类行为模拟不等于绕过所有风控，也不授予额外操作权限。
 
 ## 常见问题
 

@@ -15,7 +15,7 @@ tags:
 # xiaohongshu-cli — Xiaohongshu CLI Tool
 
 **Binary:** `xhs`
-**Credentials:** browser cookies (auto-extracted) or browser-assisted QR login (`--qrcode`)
+**Credentials:** browser cookies (auto-extracted) or visible, humanized CloakBrowser QR login (`--qrcode`)
 
 ## Setup
 
@@ -49,7 +49,7 @@ Ensure user is logged into xiaohongshu.com in any browser supported by [browser_
 ```bash
 xhs login                              # auto-detect browser with valid cookies
 xhs login --cookie-source arc          # specify browser explicitly
-xhs login --qrcode                     # browser-assisted QR login with terminal QR output
+xhs login --qrcode                     # visible, humanized CloakBrowser QR login with terminal QR output
 ```
 
 Verify with:
@@ -196,10 +196,20 @@ xhs hot -c travel --yaml
 
 ### QR code login
 
+Install `xiaohongshu-cli[browser]` and prepare CloakBrowser's license and binary
+through its own setup. Browser launches use Python `launch(headless=False,
+humanize=True)` only. Call the SDK directly: no DISPLAY/Wayland preflight, SSH
+restriction or desktop-environment injection. Do not start virtual displays or
+silently switch to headless mode.
+The SDK may download/update its managed browser; prepare it before unattended use.
+License keys stay in the SDK environment/configuration, never model messages or logs.
+Phone confirmation alone is not success: require verified non-guest account identity.
+Do not automatically retry verification failures or expose Cookie/QR secrets.
+
 ```bash
 # When browser cookie extraction is not available
 xhs login --qrcode
-# → Launches a browser-assisted login flow
+# → Launches a visible, humanized CloakBrowser via Python Playwright
 # → Renders QR in terminal using Unicode half-blocks
 # → Scan with Xiaohongshu app → confirm → export cookies
 ```

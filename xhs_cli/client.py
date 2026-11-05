@@ -15,7 +15,6 @@ from typing import Any
 import httpx
 
 from .client_mixins import (
-    AuthEndpointsMixin,
     CreatorEndpointsMixin,
     InteractionEndpointsMixin,
     NotificationEndpointsMixin,
@@ -43,7 +42,6 @@ class XhsClient(
     CreatorEndpointsMixin,
     SocialEndpointsMixin,
     NotificationEndpointsMixin,
-    AuthEndpointsMixin,
 ):
     """Xiaohongshu API client with automatic signing, rate limiting, and retry."""
 

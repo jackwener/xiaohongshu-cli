@@ -1,257 +1,271 @@
-"""Unit tests for QR code login flow."""
+"""QR confirmation is not login: verify the session, never save from the library."""
+
+import json
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 
-from xhs_cli.command_normalizers import normalize_xhs_user_payload
-from xhs_cli.exceptions import XhsApiError
-from xhs_cli.qr_login import BrowserQrLoginUnavailable, _normalize_browser_cookies, qrcode_login
+from xhs_cli.qr_login import (
+    QR_CREATE_ENDPOINT,
+    QR_STATUS_ENDPOINT,
+    QR_USERINFO_ENDPOINT,
+    QrLoginError,
+    _cookies,
+    _render_qr,
+    qrcode_login,
+)
 
 
-class _FakeQrClient:
-    instances = []
-
-    def __init__(self, cookies, request_delay=0, **kwargs):
-        self.cookies = dict(cookies)
-        self.activate_calls = 0
-        self.status_calls = 0
-        self.complete_calls = 0
-        self.create_seen_web_session = None
-        self.status_seen_web_session = None
-        self.complete_seen_web_sessions = []
-        self.self_info_calls = 0
-        type(self).instances.append(self)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-    def login_activate(self):
-        self.activate_calls += 1
-        if self.activate_calls == 1:
-            return {"session": "guest-session", "secure_session": "guest-sec", "user_id": "guest-user"}
-        return {"session": "unexpected-session", "secure_session": "unexpected-sec", "user_id": "unexpected-user"}
-
-    def create_qr_login(self):
-        self.create_seen_web_session = self.cookies.get("web_session")
-        return {"qr_id": "qr-1", "code": "code-1", "url": "https://example.com/qr"}
-
-    def check_qr_status(self, qr_id, code):
-        self.status_calls += 1
-        self.status_seen_web_session = self.cookies.get("web_session")
-        return {"codeStatus": 2, "userId": "real-user"}
-
-    def complete_qr_login(self, qr_id, code):
-        self.complete_calls += 1
-        self.complete_seen_web_sessions.append(self.cookies.get("web_session"))
-        self.cookies["web_session"] = "real-session"
-        self.cookies["web_session_sec"] = "real-sec"
-        return {
-            "code_status": 2,
-            "login_info": {
-                "user_id": "real-user",
-                "session": "real-session",
-                "secure_session": "real-sec",
-            },
-        }
-
-    def get_self_info(self):
-        self.self_info_calls += 1
-        return {
-            "user_id": "real-user",
-            "basic_info": {
-                "user_id": "real-user",
-                "nickname": "Alice",
-                "red_id": "alice001",
-            },
-        }
-
-
-class _MismatchQrClient(_FakeQrClient):
-    def complete_qr_login(self, qr_id, code):
-        self.complete_calls += 1
-        self.complete_seen_web_sessions.append(self.cookies.get("web_session"))
-        self.cookies["web_session"] = "wrong-session"
-        self.cookies["web_session_sec"] = "wrong-sec"
-        return {
-            "code_status": 2,
-            "login_info": {
-                "user_id": "guest-user",
-                "session": "wrong-session",
-                "secure_session": "wrong-sec",
-            },
-        }
-
-    def get_self_info(self):
-        self.self_info_calls += 1
-        return {
-            "user_id": "guest-user",
-            "basic_info": {
-                "user_id": "guest-user",
-                "nickname": "Guest",
-                "red_id": "",
-            },
-        }
-
-
-class _SelfInfoFallbackQrClient(_FakeQrClient):
-    def complete_qr_login(self, qr_id, code):
-        self.complete_calls += 1
-        self.complete_seen_web_sessions.append(self.cookies.get("web_session"))
-        self.cookies["web_session"] = "real-session"
-        self.cookies["web_session_sec"] = "real-sec"
-        return {
-            "code_status": 2,
-            "login_info": {
-                "user_id": "guest-user",
-                "session": "real-session",
-                "secure_session": "real-sec",
-            },
-        }
-
-
-def test_qrcode_login_completes_after_confirmation_and_saves_real_session(monkeypatch):
-    saved = []
-
-    monkeypatch.setattr("xhs_cli.qr_login.XhsClient", _FakeQrClient)
-    monkeypatch.setattr("xhs_cli.qr_login._generate_a1", lambda: "a1-fixed")
-    monkeypatch.setattr("xhs_cli.qr_login._generate_webid", lambda: "webid-fixed")
-    monkeypatch.setattr("xhs_cli.qr_login._display_qr_in_terminal", lambda data: True)
-    monkeypatch.setattr("xhs_cli.qr_login.time.sleep", lambda seconds: None)
-    monkeypatch.setattr("xhs_cli.qr_login.save_cookies", lambda cookies: saved.append(cookies))
-
-    cookies = qrcode_login(timeout_s=1)
-    client = _FakeQrClient.instances[-1]
-
-    assert client.create_seen_web_session == "guest-session"
-    assert client.status_seen_web_session == "guest-session"
-    assert client.activate_calls == 1
-    assert client.complete_calls == 1
-    assert client.complete_seen_web_sessions == ["guest-session"]
-    assert cookies == {
-        "a1": "a1-fixed",
-        "webId": "webid-fixed",
-        "web_session": "real-session",
-        "web_session_sec": "real-sec",
-    }
-    assert saved == [cookies]
-
-
-def test_qrcode_login_accepts_confirmed_user_from_self_info_fallback(monkeypatch):
-    saved = []
-
-    monkeypatch.setattr("xhs_cli.qr_login.XhsClient", _SelfInfoFallbackQrClient)
-    monkeypatch.setattr("xhs_cli.qr_login._generate_a1", lambda: "a1-fixed")
-    monkeypatch.setattr("xhs_cli.qr_login._generate_webid", lambda: "webid-fixed")
-    monkeypatch.setattr("xhs_cli.qr_login._display_qr_in_terminal", lambda data: True)
-    monkeypatch.setattr("xhs_cli.qr_login.time.sleep", lambda seconds: None)
-    monkeypatch.setattr("xhs_cli.qr_login.save_cookies", lambda cookies: saved.append(cookies))
-
-    cookies = qrcode_login(timeout_s=1)
-    client = _SelfInfoFallbackQrClient.instances[-1]
-
-    assert client.activate_calls == 1
-    assert client.complete_calls == 1
-    assert client.self_info_calls >= 1
-    assert cookies == {
-        "a1": "a1-fixed",
-        "webId": "webid-fixed",
-        "web_session": "real-session",
-        "web_session_sec": "real-sec",
-    }
-    assert saved == [cookies]
-
-
-def test_qrcode_login_rejects_mismatched_confirmed_user(monkeypatch):
-    monkeypatch.setattr("xhs_cli.qr_login.XhsClient", _MismatchQrClient)
-    monkeypatch.setattr("xhs_cli.qr_login._generate_a1", lambda: "a1-fixed")
-    monkeypatch.setattr("xhs_cli.qr_login._generate_webid", lambda: "webid-fixed")
-    monkeypatch.setattr("xhs_cli.qr_login._display_qr_in_terminal", lambda data: True)
-    monkeypatch.setattr("xhs_cli.qr_login.time.sleep", lambda seconds: None)
-    monkeypatch.setattr("xhs_cli.qr_login.save_cookies", lambda cookies: None)
-
-    with pytest.raises(XhsApiError, match="completion never returned"):
-        qrcode_login(timeout_s=1)
-
-
-def test_qrcode_login_prefers_browser_assisted_backend(monkeypatch):
-    saved = []
-
-    monkeypatch.setattr(
-        "xhs_cli.qr_login._browser_assisted_qrcode_login",
-        lambda **kwargs: {
-            "a1": "a1-browser",
-            "webId": "webid-browser",
-            "web_session": "0400-browser",
-            "web_session_sec": "secure-browser",
-            "id_token": "token-browser",
-        },
+def response(path, payload, method="GET", status=200, host="edith.xiaohongshu.com"):
+    return SimpleNamespace(
+        url="https://" + host + path,
+        request=SimpleNamespace(method=method),
+        status=status,
+        json=lambda: {"success": True, "data": payload},
     )
 
-    cookies = qrcode_login(timeout_s=1, prefer_browser_assisted=True)
 
-    assert cookies["web_session"] == "0400-browser"
-    assert cookies["id_token"] == "token-browser"
-    assert saved == []
+def events():
+    return [
+        response(QR_CREATE_ENDPOINT, {"url": "secret-qr"}, "POST"),
+        response(QR_USERINFO_ENDPOINT, {"codeStatus": 2, "userId": "ours"}),
+        response(QR_STATUS_ENDPOINT, {"login_info": {"user_id": "ours", "session": "secret-session"}}),
+    ]
 
 
-def test_qrcode_login_falls_back_when_browser_backend_unavailable(monkeypatch):
-    monkeypatch.setattr(
-        "xhs_cli.qr_login._browser_assisted_qrcode_login",
-        lambda **kwargs: (_ for _ in ()).throw(BrowserQrLoginUnavailable("missing camoufox")),
+@pytest.fixture
+def scenario(tmp_path, monkeypatch):
+    state = SimpleNamespace(
+        events=events(),
+        cookies=[
+            {"name": "a1", "value": "secret-a1", "domain": ".xiaohongshu.com"},
+            {"name": "webId", "value": "secret-webid", "domain": ".xiaohongshu.com"},
+        ],
+        user={"user_id": "ours", "guest": False},
+        closed=[],
+        rendered=[],
+        status=[],
+        immediate=False,
+        api_error=None,
+        callback=None,
+        cookie_path=tmp_path / ".xiaohongshu-cli" / "cookies.json",
     )
-    monkeypatch.setattr(
-        "xhs_cli.qr_login._http_qrcode_login",
-        lambda **kwargs: {
-            "a1": "a1-http",
-            "webId": "webid-http",
-            "web_session": "http-session",
-        },
-    )
+    monkeypatch.setenv("HOME", str(tmp_path))
 
-    cookies = qrcode_login(timeout_s=1, prefer_browser_assisted=True)
+    class Page:
+        context = SimpleNamespace(cookies=lambda: state.cookies)
 
-    assert cookies == {
-        "a1": "a1-http",
-        "webId": "webid-http",
-        "web_session": "http-session",
-    }
+        def on(self, event, callback):
+            assert event == "response"
+            state.callback = callback
+
+        def goto(self, *args, **kwargs):
+            if state.immediate:
+                while state.events:
+                    state.callback(state.events.pop(0))
+
+        def wait_for_timeout(self, _timeout):
+            if state.events:
+                state.callback(state.events.pop(0))
+
+    @contextmanager
+    def browser():
+        try:
+            yield Page()
+        finally:
+            state.closed.append("browser")
+
+    class Client:
+        def __init__(self, cookies, **kwargs):
+            assert cookies["web_session"] == "secret-session"
+            assert kwargs["max_retries"] == 1
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            state.closed.append("client")
+
+        def get_self_info(self):
+            if state.api_error:
+                raise state.api_error
+            return state.user
+
+    monkeypatch.setattr("xhs_cli.qr_login.browser_page", browser)
+    monkeypatch.setattr("xhs_cli.qr_login.XhsClient", Client)
+    return state
 
 
-def test_normalize_browser_cookies_uses_allowlist():
-    cookies = _normalize_browser_cookies([
-        {"name": "a1", "value": "a1-value", "domain": ".xiaohongshu.com"},
-        {"name": "web_session", "value": "session-value", "domain": ".xiaohongshu.com"},
-        {"name": "customer-sso-sid", "value": "skip-me", "domain": ".xiaohongshu.com"},
-        {"name": "creator_only", "value": "skip-me-too", "domain": "creator.xiaohongshu.com"},
-    ])
-
-    assert cookies == {
-        "a1": "a1-value",
-        "web_session": "session-value",
-    }
+def run(state, **kwargs):
+    return qrcode_login(on_qr=state.rendered.append, on_status=state.status.append, **kwargs)
 
 
-def test_normalize_xhs_user_payload_reads_basic_info():
-    user = normalize_xhs_user_payload({
-        "guest": False,
-        "basic_info": {
-            "user_id": "user-1",
-            "nickname": "Alice",
-            "red_id": "alice001",
-            "ip_location": "上海",
-            "desc": "hello",
-        },
-    })
+@pytest.mark.parametrize("immediate", [False, True])
+def test_confirmed_verified_login_returns_without_saving_or_losing_fast_events(scenario, immediate):
+    scenario.immediate = immediate
+    result = run(scenario)
+    assert result.cookies["web_session"] == "secret-session"
+    assert result.user["user_id"] == "ours"
+    assert scenario.rendered == ["secret-qr"]
+    assert scenario.closed == ["browser", "client"]
+    assert not scenario.cookie_path.exists()
+    assert "secret" not in repr(result)
+    assert "secret" not in " ".join(scenario.status)
+    assert "Phone confirmed" in " ".join(scenario.status)
 
-    assert user == {
-        "id": "user-1",
-        "name": "Alice",
-        "username": "alice001",
-        "nickname": "Alice",
-        "red_id": "alice001",
-        "ip_location": "上海",
-        "desc": "hello",
-        "guest": False,
-    }
+
+@pytest.mark.parametrize("user", [{"guest": True, "user_id": "ours"}, {"user_id": "other"}, {}, None])
+def test_guest_mismatched_or_missing_identity_is_not_success(scenario, user):
+    scenario.user = user
+    with pytest.raises(QrLoginError, match="session does not match") as caught:
+        run(scenario)
+    assert caught.value.stage == "account verification"
+    assert not scenario.cookie_path.exists()
+    assert scenario.closed == ["browser", "client"]
+
+
+@pytest.mark.parametrize("http_status", [400, 403, 461, 471, 500])
+def test_platform_failure_reports_safe_stage_and_status(scenario, http_status):
+    scenario.events[-1] = response(QR_STATUS_ENDPOINT, {"secret": "private"}, status=http_status)
+    with pytest.raises(QrLoginError, match=f"HTTP {http_status}") as caught:
+        run(scenario)
+    assert "private" not in str(caught.value)
+    assert caught.value.stage == "session completion"
+    assert scenario.closed == ["browser"]
+    assert not scenario.cookie_path.exists()
+
+
+def test_phone_confirmation_does_not_skip_completion(scenario):
+    scenario.events.pop()
+    with pytest.raises(QrLoginError, match="timed out"):
+        run(scenario, timeout_s=0.01)
+    assert "Phone confirmed" in " ".join(scenario.status)
+    assert scenario.closed == ["browser"]
+    assert not scenario.cookie_path.exists()
+
+
+def test_cookies_are_allowlisted_and_domain_boundary_is_exact():
+    assert _cookies(
+        [
+            {"name": "a1", "value": "yes", "domain": ".xiaohongshu.com"},
+            {"name": "web_session", "value": "no", "domain": "evilxiaohongshu.com"},
+            {"name": "customer-sso-sid", "value": "no", "domain": "xiaohongshu.com"},
+            {"name": "web_session", "value": "no", "domain": "xiaohongshu.com.evil"},
+            {"name": "web_session", "value": "no", "domain": None},
+        ]
+    ) == {"a1": "yes"}
+
+
+def test_missing_session_cookie_is_rejected(scenario):
+    scenario.events[-1] = response(QR_STATUS_ENDPOINT, {"login_info": {"user_id": "ours"}})
+    with pytest.raises(QrLoginError, match="incomplete authenticated cookies"):
+        run(scenario)
+    assert scenario.closed == ["browser"]
+
+
+def test_unrelated_origin_cannot_complete_login(scenario):
+    scenario.events[-1] = response(QR_STATUS_ENDPOINT, {"login_info": {"user_id": "ours"}}, host="evilxiaohongshu.com")
+    with pytest.raises(QrLoginError, match="timed out"):
+        run(scenario, timeout_s=0.01)
+
+
+def test_api_verification_error_does_not_leak_response(scenario):
+    from xhs_cli.exceptions import XhsApiError
+
+    scenario.api_error = XhsApiError("secret-session response=private")
+    with pytest.raises(QrLoginError) as caught:
+        run(scenario)
+    assert "secret" not in str(caught.value)
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.parametrize("timeout", [0, -1, True, float("nan"), float("inf")])
+def test_invalid_timeout_is_rejected_before_startup(timeout):
+    with pytest.raises(ValueError, match="positive finite"):
+        qrcode_login(timeout_s=timeout)
+
+
+def test_terminal_qr_is_compact_and_does_not_print_the_secret_url(capsys):
+    _render_qr("https://example.invalid/secret-qr")
+    output = capsys.readouterr().out
+    assert any(character in output for character in "█▀▄")
+    assert "secret" not in output
+
+
+def test_cli_saves_only_verified_result_and_keeps_json_stdout_clean(scenario, monkeypatch):
+    from click.testing import CliRunner
+
+    from xhs_cli.cli import cli
+    from xhs_cli.qr_login import QrLoginResult
+
+    def login(**kwargs):
+        assert kwargs == {}
+        print("Scan QR here")
+        return QrLoginResult(
+            {"a1": "fixture", "web_session": "fixture-session"},
+            {"user_id": "ours", "basic_info": {"nickname": "Cat", "red_id": "cat"}},
+        )
+
+    monkeypatch.setattr("xhs_cli.qr_login.qrcode_login", login)
+    result = CliRunner().invoke(cli, ["login", "--qrcode", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["data"]["authenticated"] is True
+    assert "Scan QR here" in result.stderr
+    assert scenario.cookie_path.exists()
+
+
+def test_cli_login_failure_retains_previous_credentials(scenario, monkeypatch):
+    from click.testing import CliRunner
+
+    from xhs_cli.cli import cli
+    from xhs_cli.cookies import save_cookies
+
+    save_cookies({"a1": "previous", "web_session": "previous"})
+    previous = scenario.cookie_path.read_bytes()
+
+    def fail(**kwargs):
+        raise QrLoginError("account verification", "guest session")
+
+    monkeypatch.setattr("xhs_cli.qr_login.qrcode_login", fail)
+    result = CliRunner().invoke(cli, ["login", "--qrcode", "--json"])
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["ok"] is False
+    assert scenario.cookie_path.read_bytes() == previous
+
+
+def test_user_cancellation_closes_browser_and_never_saves(scenario):
+    def cancel(url):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        qrcode_login(on_qr=cancel, on_status=scenario.status.append)
+    assert scenario.closed == ["browser"]
+    assert not scenario.cookie_path.exists()
+
+
+def test_changing_confirmed_account_is_rejected(scenario):
+    scenario.events[1] = response(QR_USERINFO_ENDPOINT, {"codeStatus": 2, "userId": "other"})
+    with pytest.raises(QrLoginError, match="inconsistent confirmed account"):
+        run(scenario)
+    assert scenario.closed == ["browser"]
+    assert not scenario.cookie_path.exists()
+
+
+def test_qr_refresh_fails_instead_of_waiting_on_an_outdated_qr(scenario):
+    scenario.events.insert(1, response(QR_CREATE_ENDPOINT, {"url": "secret-replacement"}, "POST"))
+    with pytest.raises(QrLoginError, match="QR was replaced"):
+        run(scenario)
+    assert scenario.rendered == ["secret-qr"]
+    assert scenario.closed == ["browser"]
+
+
+def test_renderer_failure_closes_browser_and_does_not_expose_callback_secrets(scenario):
+    def fail(url):
+        raise RuntimeError("secret-qr callback failure")
+
+    with pytest.raises(QrLoginError) as caught:
+        qrcode_login(on_qr=fail, on_status=scenario.status.append)
+    assert "secret" not in str(caught.value)
+    assert scenario.closed == ["browser"]
+    assert not scenario.cookie_path.exists()
